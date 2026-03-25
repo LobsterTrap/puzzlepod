@@ -1,0 +1,167 @@
+name: Release Tag
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/lobstertrap/puzzlepod/puzzlepod
+
+jobs:
+  validate:
+    name: Validate Tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Validate Cargo.toml version
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          EXPECTED="${{ steps.version.outputs.version }}"
+          if [ "$CARGO_VERSION" != "$EXPECTED" ]; then
+            echo "::warning::Cargo.toml version ($CARGO_VERSION) does not match tag ($EXPECTED)"
+          fi
+
+  build:
+    name: Build Release Binaries
+    needs: validate
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            target/
+          key: release-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: release-${{ runner.os }}-
+
+      - name: Build release binaries
+        run: cargo build --workspace --profile release
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries
+          path: |
+            target/release/puzzled
+            target/release/puzzlectl
+            target/release/puzzle-sandbox-demo
+
+  container:
+    name: Build Release Container
+    needs: validate
+    uses: ./.github/workflows/container-build.yml
+    with:
+      image-tag: v${{ needs.validate.outputs.version }}
+      push: true
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  tag-latest:
+    name: Tag Container as Latest
+    needs: [validate, container]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag as latest
+        run: |
+          docker pull ghcr.io/lobstertrap/puzzlepod/puzzlepod:v${{ needs.validate.outputs.version }}
+          docker tag ghcr.io/lobstertrap/puzzlepod/puzzlepod:v${{ needs.validate.outputs.version }} ghcr.io/lobstertrap/puzzlepod/puzzlepod:latest
+          docker push ghcr.io/lobstertrap/puzzlepod/puzzlepod:latest
+
+  release:
+    name: Create GitHub Release
+    needs: [validate, build, container]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-binaries
+          path: artifacts/
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git tag --sort=-v:refname | grep '^v' | head -2 | tail -1)
+          if [ -z "$PREV_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:'- %s (%h)' HEAD)
+          else
+            CHANGELOG=$(git log --pretty=format:'- %s (%h)' "$PREV_TAG"..HEAD)
+          fi
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          gh release create "v${VERSION}" \
+            --title "PuzzlePod v${VERSION}" \
+            --notes "## What's Changed
+
+          ${{ steps.changelog.outputs.changelog }}
+
+          ## Installation
+
+          ### Binary
+          Download the appropriate binary from the assets below.
+
+          ### Container
+          \`\`\`bash
+          podman pull ghcr.io/lobstertrap/puzzlepod/puzzlepod:v${VERSION}
+          \`\`\`
+
+          ## Checksums
+          See \`SHA256SUMS\` in the release assets." \
+            artifacts/*

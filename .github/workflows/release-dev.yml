@@ -1,0 +1,97 @@
+name: Release Dev
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/lobstertrap/puzzlepod/puzzlepod
+
+concurrency:
+  group: release-dev
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Release Binaries
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            target/
+          key: release-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: release-${{ runner.os }}-
+
+      - name: Build release binaries
+        run: cargo build --workspace --profile release
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries
+          path: |
+            target/release/puzzled
+            target/release/puzzlectl
+            target/release/puzzle-sandbox-demo
+          retention-days: 7
+
+  container:
+    name: Build Dev Container
+    needs: build
+    uses: ./.github/workflows/container-build.yml
+    with:
+      image-tag: dev-${{ github.sha }}
+      push: true
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release:
+    name: Create Dev Pre-release
+    needs: [build, container]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-binaries
+          path: artifacts/
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS
+
+      - name: Update dev release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Delete existing dev release if it exists
+          gh release delete dev --yes 2>/dev/null || true
+          git tag -d dev 2>/dev/null || true
+          git push origin :refs/tags/dev 2>/dev/null || true
+
+          # Create new dev release
+          git tag dev
+          git push origin dev
+          gh release create dev \
+            --title "Development Build ($(date -u +%Y-%m-%d))" \
+            --notes "Automated dev build from main branch at $(git rev-parse --short HEAD).
+
+          Container image: \`ghcr.io/lobstertrap/puzzlepod/puzzlepod:dev-$(git rev-parse HEAD)\`" \
+            --prerelease \
+            artifacts/*

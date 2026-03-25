@@ -1,0 +1,43 @@
+name: Issue Triage
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  triage:
+    name: Auto-Triage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check bug report completeness
+        if: startsWith(github.event.issue.title, 'bug:')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Check for agent diagnostic section
+          if echo "$ISSUE_BODY" | grep -q "Agent Diagnostic"; then
+            CONTENT=$(echo "$ISSUE_BODY" | sed -n '/Agent Diagnostic/,/^##\|^$/p' | tail -n +2)
+            if [ -n "$CONTENT" ] && [ "$CONTENT" != "N/A" ]; then
+              echo "Agent diagnostic section found"
+              exit 0
+            fi
+          fi
+
+          # Missing or empty agent diagnostic
+          gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "state:triage-needed"
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "$(cat <<'EOF'
+          Thank you for filing this bug report!
+
+          To help us triage faster, consider running an AI assistant with the relevant debugging skill before filing:
+          - `skills/engineer.md` for general debugging
+          - `skills/adversarial-qe.md` for a systematic review
+
+          If you have already investigated, please update the **Agent Diagnostic** section with your findings.
+          EOF
+          )"

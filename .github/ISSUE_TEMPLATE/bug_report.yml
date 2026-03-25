@@ -1,0 +1,80 @@
+name: Bug Report
+description: Report a bug in PuzzlePod
+title: "bug: "
+labels: ["bug", "state:triage-needed"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing a bug, consider using an AI assistant with `skills/engineer.md`
+        to gather diagnostic context. This helps maintainers triage faster.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of the bug
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to reproduce the issue
+      placeholder: |
+        1. Run `puzzlectl branch create --profile=restricted --base=/tmp/test --command='["/bin/sh"]'`
+        2. ...
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened (include error messages)
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: System information
+      placeholder: |
+        - OS: Fedora 42 / RHEL 10 / CentOS Stream 10
+        - Arch: x86_64 / aarch64
+        - PuzzlePod version: (puzzlectl --version)
+        - Kernel: (uname -r)
+        - Podman: (podman --version)
+    validations:
+      required: true
+
+  - type: textarea
+    id: agent-diagnostic
+    attributes:
+      label: Agent Diagnostic
+      description: |
+        If you used an AI assistant to diagnose this issue, paste the diagnostic output here.
+        This helps maintainers understand what has already been investigated.
+      placeholder: "Paste agent diagnostic output here, or write 'N/A' if not applicable"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Any relevant log output (use code blocks)
+      render: shell
+    validations:
+      required: false

@@ -1,0 +1,110 @@
+name: Vouch Check
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  check-vouch:
+    name: Vouch Status
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: vouched
+          sparse-checkout: .github/VOUCHED.md
+          sparse-checkout-cone-mode: false
+
+      - name: Check if author is vouched
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Check if author is an org member
+          ORG=$(echo "$REPO" | cut -d'/' -f1)
+          if gh api "orgs/$ORG/members/$PR_AUTHOR" --silent 2>/dev/null; then
+            echo "Author $PR_AUTHOR is an org member — vouched automatically"
+            exit 0
+          fi
+
+          # Check VOUCHED.md
+          if [ -f .github/VOUCHED.md ] && grep -qi "^${PR_AUTHOR}$" .github/VOUCHED.md; then
+            echo "Author $PR_AUTHOR is in VOUCHED.md"
+            exit 0
+          fi
+
+          # Not vouched — label and comment
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "needs-vouch"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(cat <<'EOF'
+          Welcome! This appears to be your first contribution.
+
+          Before we can review your PR, a maintainer needs to vouch for you:
+          1. Open a [Discussion](../../discussions/new?category=vouch-requests) describing your intended changes
+          2. Write it in your own words (AI-generated requests will be declined)
+          3. A maintainer will respond with `/vouch` to approve
+
+          See [CONTRIBUTING.md](CONTRIBUTING.md#vouch-system-external-contributors) for details.
+          EOF
+          )"
+          echo "::warning::PR author $PR_AUTHOR is not vouched"
+
+  process-vouch:
+    name: Process Vouch Command
+    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '/vouch')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check commenter permissions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+          REPO: ${{ github.repository }}
+        run: |
+          PERM=$(gh api "repos/$REPO/collaborators/$COMMENTER/permission" --jq '.permission')
+          if [[ "$PERM" != "admin" && "$PERM" != "maintain" && "$PERM" != "write" ]]; then
+            echo "User $COMMENTER does not have write permissions — ignoring"
+            exit 0
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: vouched
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add user to vouched list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Get PR author (issue_comment on PR)
+          PR_AUTHOR=$(gh pr view "$ISSUE_NUMBER" --repo "$REPO" --json author --jq '.author.login' 2>/dev/null || echo "")
+          if [ -z "$PR_AUTHOR" ]; then
+            echo "Could not determine PR author"
+            exit 0
+          fi
+
+          # Add to VOUCHED.md
+          mkdir -p .github
+          touch .github/VOUCHED.md
+          if ! grep -qi "^${PR_AUTHOR}$" .github/VOUCHED.md; then
+            echo "$PR_AUTHOR" >> .github/VOUCHED.md
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .github/VOUCHED.md
+            git commit -m "chore: vouch $PR_AUTHOR"
+            git push
+          fi
+
+          # Remove label and comment
+          gh pr edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "needs-vouch" 2>/dev/null || true
+          gh pr comment "$ISSUE_NUMBER" --repo "$REPO" --body "@$PR_AUTHOR has been vouched by @${{ github.event.comment.user.login }}. Welcome aboard!"

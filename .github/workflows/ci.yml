@@ -3,9 +3,28 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'man/**'
+      - 'skills/**'
+      - '.claude/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'man/**'
+      - 'skills/**'
+      - '.claude/**'
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,7 +32,7 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # CI: fmt + clippy + unit tests + feature matrix + cargo-deny
+  # CI: license headers + fmt + clippy + unit tests + feature matrix + cargo-deny
   # ---------------------------------------------------------------------------
   ci:
     name: Build & Test
@@ -22,6 +41,11 @@ jobs:
       image: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
     steps:
       - uses: actions/checkout@v4
+
+      - name: "Suite 0/5 — License Headers"
+        run: |
+          chmod +x scripts/check-license-headers.sh
+          scripts/check-license-headers.sh
 
       - name: Cache cargo registry and build
         uses: actions/cache@v4

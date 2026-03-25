@@ -1,0 +1,104 @@
+name: Performance Benchmarks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmarks:
+    name: Benchmark Regression Check
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            target/
+          key: bench-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: bench-${{ runner.os }}-
+
+      - name: Install critcmp
+        run: cargo install critcmp --locked 2>/dev/null || true
+
+      - name: Run benchmarks on PR branch
+        run: cargo bench -p puzzled -- --save-baseline pr
+
+      - name: Checkout main and run baseline benchmarks
+        run: |
+          git config --global --add safe.directory "$(pwd)"
+          git fetch origin main
+          git checkout origin/main -- crates/ Cargo.toml Cargo.lock
+          cargo bench -p puzzled -- --save-baseline main
+          git checkout - -- crates/ Cargo.toml Cargo.lock
+
+      - name: Compare benchmarks
+        id: compare
+        run: |
+          RESULTS=$(critcmp main pr 2>&1 || echo "critcmp not available — skipping comparison")
+          echo "results<<EOF" >> $GITHUB_OUTPUT
+          echo "$RESULTS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Check for regressions > 10%
+          if echo "$RESULTS" | grep -E '\+[0-9]{2,}\.[0-9]+%' | grep -v critcmp; then
+            echo "regression=true" >> $GITHUB_OUTPUT
+          else
+            echo "regression=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post benchmark results
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const results = `${{ steps.compare.outputs.results }}`;
+            const regression = '${{ steps.compare.outputs.regression }}' === 'true';
+            const body = `## Benchmark Results\n\n\`\`\`\n${results}\n\`\`\`\n\n${regression ? '**Regression detected** (>10% degradation)' : 'No significant regression detected'}`;
+
+            // Find and update existing comment or create new
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const botComment = comments.find(c => c.body.includes('## Benchmark Results'));
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail on regression
+        if: steps.compare.outputs.regression == 'true'
+        run: |
+          echo "::error::Performance regression detected (>10% degradation)"
+          exit 1
