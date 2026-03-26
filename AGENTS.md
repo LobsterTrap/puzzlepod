@@ -69,8 +69,8 @@ Source comments use prefixed tags. Key prefixes: `H` (hardening), `M` (mitigatio
 
 | Feature | Default | Description |
 |---|---|---|
-| `tui` | yes | Interactive terminal UI (`puzzlectl tui`) |
-| `sim` | yes | Governance simulator and `puzzle-sim-worker` binary |
+| `tui` | yes | Interactive terminal UI (`puzzlectl tui`) with Live/Log mode toggle and audit log viewer |
+| `sim` | yes | Governance simulator and `puzzle-sim-worker` binary. `--pace` flag adds delays for TUI visibility |
 
 ## Design principles
 

@@ -4,7 +4,7 @@ This document describes how to run the PuzzlePod demos, what each demo covers, a
 
 ## Overview
 
-PuzzlePod includes five complementary demo scripts that showcase the system's capabilities:
+PuzzlePod includes six complementary demo scripts that showcase the system's capabilities:
 
 | Demo | Script | Root? | Requires | Scope |
 |---|---|---|---|---|
@@ -13,6 +13,7 @@ PuzzlePod includes five complementary demo scripts that showcase the system's ca
 | **Sandbox Live** | `demo/sandbox-live-demo.sh` | Yes | Running `puzzled` + `puzzlectl` | Live sandboxed agent with /proc inspection of 8 enforcement properties |
 | **Rootless** | `demo/run_demo_rootless.sh` | **No** | `puzzlectl`, `fuse-overlayfs` | Fork-Explore-Commit without root: fuse-overlayfs, OPA/Rego, Landlock, seccomp |
 | **E2E Governance** | `demo/e2e_governance_demo.sh` | Yes | Rust test binary | Full governance lifecycle: trust scoring, provenance, attestation, identity |
+| **TUI** | `demo/run_demo_tui.sh` | **No** | Running `puzzled` + `puzzlectl` | Interactive terminal UI with real-time governance events and audit log review |
 
 **The demos are complementary, not overlapping.** Phase 1 demonstrates the foundational Fork-Explore-Commit transactional model and kernel-enforced containment. Phase 2 demonstrates hardening features built on top of that foundation. The Sandbox Live demo shows a real agent process running under full kernel enforcement with live inspection of `/proc` to prove containment. The Rootless demo proves that the core governance engine works fully without root privileges — using fuse-overlayfs instead of kernel OverlayFS, D-Bus session bus instead of system bus, and the same OPA/Rego + Landlock + seccomp enforcement. The E2E Governance demo exercises the cross-cutting governance modules (trust, provenance, attestation, identity) through a 3-act narrative. For a complete walkthrough, run Phase 1 first, then Phase 2, then the Sandbox Live demo, then the Rootless demo, then the E2E Governance demo.
 
@@ -627,6 +628,77 @@ At each act, the demo verifies the attestation chain:
 - Events are organized in a Merkle tree
 - Merkle inclusion proofs verify that a specific event belongs to the tree
 - This provides tamper-evident forensic proof — puzzled cannot retroactively alter governance decisions without breaking the chain
+
+---
+
+## TUI Demo: Interactive Governance Dashboard
+
+### What This Demo Shows
+
+The TUI demo launches the PuzzlePod interactive terminal UI while running governance simulation scenarios in the background. You watch branches being created, policy-evaluated, committed, and rejected in real time through a cyberpunk-themed dashboard.
+
+The demo showcases two modes:
+- **Live mode** — real-time view of active branches as governance scenarios execute
+- **Log mode** — review all historical branch activity from the persistent audit log
+
+### Running the Demo
+
+**From the host (via libvirt VM):**
+
+```bash
+./scripts/libvirt-dev.sh demo tui
+```
+
+**Inside the VM directly:**
+
+```bash
+demo/run_demo_tui.sh
+```
+
+The script starts `puzzled` (if not already running), launches 7 governance scenarios in the background with paced delays, and opens the TUI in the foreground.
+
+### What Happens
+
+1. **Splash screen** (3 seconds) — PuzzlePod ASCII art logo
+2. **Dashboard** appears showing the branch table (initially empty)
+3. Background scenarios begin executing every ~10 seconds:
+   - `safe_code_edit` — standard profile, should commit (currently denied due to exec permission policy)
+   - `credential_leak` — policy violation, rejected
+   - `persistence_attack` — policy violation, rejected
+   - `network_exfiltration` — policy violation, rejected
+   - `multi_file_refactor` — standard profile, should commit
+   - `mixed_safe_and_sensitive` — rejected (sensitive content)
+   - `exec_attempt` — rejected
+4. Each scenario creates a branch (visible in Live mode during `--pace` delays), executes file changes, and submits for policy review
+5. The title bar shows `LIVE` (green) or `LOG` (yellow) mode indicator
+
+### Key Bindings
+
+| Key | Context | Action |
+|-----|---------|--------|
+| `m` | Dashboard | Toggle between Live and Log mode |
+| `L` | Dashboard | Open full audit log viewer with filtering |
+| `j/k` | Any | Navigate up/down |
+| `Enter` | Dashboard | Open branch detail view |
+| `Esc` | Detail/Log | Return to Dashboard |
+| `h/l` | Detail | Cycle through tabs (Logs, Diff/Draft, Policy, Settings) |
+| `Tab` | Dashboard | Cycle focus (status, tabs, branch table) |
+| `r` | Any | Refresh data |
+| `c` | Dashboard | Create new branch |
+| `q` | Dashboard | Quit |
+
+### Live vs Log Mode
+
+**Live mode** polls the daemon every 2 seconds for active branches. Branches are ephemeral — they appear while a scenario is running (thanks to `--pace` delays) and disappear after commit/rollback. Notification toasts appear for D-Bus signals.
+
+**Log mode** reconstructs all historical branches from the persistent audit event store. Press `m` to switch. Every branch that was ever created appears in the table with its final state (Committed, Denied, RolledBack). Select any branch and press Enter to view its full audit trail in the Logs tab.
+
+### Audit Log Viewer
+
+Press `L` (shift-L) from the Dashboard to open the full audit log screen. This shows all governance events chronologically with:
+- Timestamp, event type, branch ID, and detail summary
+- Color coding: green (created/committed), red (violations/rejected), yellow (review/rollback)
+- Filterable by branch ID and event type (Tab to switch filter fields, type to filter, Enter to reload)
 
 ---
 
