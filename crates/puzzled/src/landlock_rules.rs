@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Landlock rules JSON generation for the puzzle-init shim.
 //!
 //! Generates a JSON file consumed by the `puzzle-init` binary inside

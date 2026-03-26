@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use puzzled_types::{BranchId, BranchInfo, BranchState, CommitResult, FileChange, PolicyDecision};
 use dashmap::DashMap;
 #[cfg(target_os = "linux")]

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Commit executor: applies file operations from a changeset to the base filesystem.
 //!
 //! This module handles the mechanics of WAL-protected file commits:

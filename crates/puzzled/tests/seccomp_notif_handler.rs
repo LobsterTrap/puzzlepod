@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration tests: Seccomp USER_NOTIF event loop (Linux-only, requires root).
 //!
 //! Tests that the seccomp notification handler correctly processes execve

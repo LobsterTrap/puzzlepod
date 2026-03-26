@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! TLS MITM proxy support for agent network inspection.
 //!
 //! C4: Provides per-agent CA certificate generation and on-the-fly leaf certificate

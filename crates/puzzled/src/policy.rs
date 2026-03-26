@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use puzzled_types::{FileChange, PolicyDecision, Violation, ViolationSeverity};
 use std::path::{Path, PathBuf};
 use std::time::Duration;

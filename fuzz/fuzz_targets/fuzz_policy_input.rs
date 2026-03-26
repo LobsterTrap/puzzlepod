@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Fuzz target: OPA/Rego policy evaluation input.
 //!
 //! Feeds arbitrary JSON as policy input to find panics or unexpected

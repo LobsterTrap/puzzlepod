@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Cryptographic attestation of governance (§3.1).
 //!
 //! Provides an append-only Merkle tree for governance attestation records.

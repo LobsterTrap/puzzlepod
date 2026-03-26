@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration test: IMA sign/verify roundtrip.
 //!
 //! Tests that ImaIntegration::sign_commit() and ImaIntegration::verify_manifest()

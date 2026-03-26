@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! §3.4 G5: `systemd-creds` credential encryption backend.
 //!
 //! Uses `systemd-creds encrypt`/`decrypt` subprocess calls for credential

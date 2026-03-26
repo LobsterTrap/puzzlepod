@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Test helpers for puzzled unit tests.
 //!
 //! Provides factory functions for creating test fixtures (profiles, branches,

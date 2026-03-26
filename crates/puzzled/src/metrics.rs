@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Prometheus metrics for puzzled.
 //!
 //! Exposes counters, histograms, and gauges for branch lifecycle

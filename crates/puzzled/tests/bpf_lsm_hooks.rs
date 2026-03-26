@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration tests: BPF LSM exec rate limiting (Linux-only, requires root).
 //!
 //! Tests that BPF LSM exec counting and rate limiting work correctly.

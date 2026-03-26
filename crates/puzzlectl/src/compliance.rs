@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Compliance evidence generation (§3.2).
 //!
 //! Generates regulatory compliance evidence reports from audit data, agent

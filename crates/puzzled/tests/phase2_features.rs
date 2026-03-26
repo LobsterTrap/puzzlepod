@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration tests for Phase 2 features.
 //!
 //! Tests cross-module interactions for conflict detection, budget escalation,

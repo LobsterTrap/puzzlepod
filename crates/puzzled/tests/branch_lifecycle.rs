@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration test: Full branch lifecycle (Linux-only).
 //!
 //! Tests the complete Fork-Explore-Commit cycle using real kernel primitives.

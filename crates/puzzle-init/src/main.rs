@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // puzzle-init: Landlock shim entrypoint for PuzzlePod containers.
 //
 // This binary runs INSIDE the container as the entrypoint (PID 1 or wrapper).

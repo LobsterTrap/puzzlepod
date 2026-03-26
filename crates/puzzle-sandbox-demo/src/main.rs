@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! puzzle-sandbox-demo — Live kernel enforcement demo for PuzzlePod
 //!
 //! Demonstrates real Landlock + seccomp + cgroup enforcement by running escape

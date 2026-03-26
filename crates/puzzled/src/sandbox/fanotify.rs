@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! fanotify behavioral monitoring for agent sandboxes.
 //!
 //! Monitors file access patterns within the OverlayFS merged directory:

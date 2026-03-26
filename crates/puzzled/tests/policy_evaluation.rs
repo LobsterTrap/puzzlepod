@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration test: Full diff -> policy evaluation pipeline.
 //!
 //! Tests the complete flow from file changes in a temp directory through

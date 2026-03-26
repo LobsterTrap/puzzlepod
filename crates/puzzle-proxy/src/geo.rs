@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! GeoIP lookup for data residency enforcement (§3.3).
 
 use maxminddb::{geoip2, Reader};

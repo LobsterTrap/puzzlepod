@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration tests: Sandbox containment verification (Linux-only, requires root).
 //!
 //! These tests verify that kernel enforcement mechanisms actually block

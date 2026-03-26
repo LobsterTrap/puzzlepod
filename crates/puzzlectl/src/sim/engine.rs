@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use puzzled_types::AgentProfile;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

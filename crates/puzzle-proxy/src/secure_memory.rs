@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! §3.4 G3/G4: Secure memory region for credential storage.
 //!
 //! Provides `SecureRegion` — an mmap-backed memory region with:

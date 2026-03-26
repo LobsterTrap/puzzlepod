@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Fuzz target: YAML profile deserialization.
 //!
 //! Feeds arbitrary bytes to the YAML profile parser to find panics,

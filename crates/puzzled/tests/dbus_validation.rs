@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Tests for D-Bus input validation and access control.
 //!
 //! These tests verify validation logic used by the D-Bus interface without

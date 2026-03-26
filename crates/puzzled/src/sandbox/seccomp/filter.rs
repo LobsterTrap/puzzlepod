@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use puzzled_types::AgentProfile;
 #[cfg(target_os = "linux")]
 use puzzled_types::SeccompMode;

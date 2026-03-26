@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Cross-module integration tests for §4.1 (Trust), §4.3 (Provenance), §4.5 (Identity).
 //!
 //! These tests validate that TrustManager, ProvenanceStore, and IdentityManager

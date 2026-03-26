@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! §3.4: Credential store backend abstraction.
 //!
 //! Provides a trait-based backend system for credential storage, allowing

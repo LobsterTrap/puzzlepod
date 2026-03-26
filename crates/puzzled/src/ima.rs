@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! IMA changeset signing — generates and signs commit manifests.
 //!
 //! Each commit produces a manifest (YAML) listing all files in the changeset

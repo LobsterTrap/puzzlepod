@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use criterion::{criterion_group, criterion_main, Criterion};
 
 fn bench_diff_engine(c: &mut Criterion) {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use puzzled_types::BranchId;
 use serde::Serialize;
 

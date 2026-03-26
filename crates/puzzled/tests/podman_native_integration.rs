@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Cross-module integration tests for the Podman-native architecture pivot.
 //!
 //! These tests validate the contracts between the generator modules (puzzled)

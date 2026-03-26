@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

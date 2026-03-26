@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use puzzled_types::{FileChange, FileChangeKind};
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::path::PathBuf;

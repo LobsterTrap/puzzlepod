@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use thiserror::Error;
 
 /// Top-level error type for the puzzled daemon.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! §4.3 Full Provenance Chain — persistent provenance storage for branch activity.
 //!
 //! Records the causal chain of events (request → inference → tool invocation →

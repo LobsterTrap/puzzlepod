@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use puzzled_types::AgentProfile;
 
 use crate::error::Result;

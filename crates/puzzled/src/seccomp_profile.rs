@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! OCI seccomp profile generation for Podman-native mode.
 //!
 //! Generates a JSON seccomp profile compatible with the OCI runtime spec.

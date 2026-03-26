@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration test: WAL recovery execution.
 //!
 //! Tests that WAL recovery actually reverses incomplete operations. Creates

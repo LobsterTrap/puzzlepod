@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Fuzz target: Diff engine changeset parsing.
 //!
 //! Feeds arbitrary file paths and metadata to the FileChange struct

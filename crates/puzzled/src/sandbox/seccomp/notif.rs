@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use std::time::Duration;
 #[cfg(target_os = "linux")]
 use std::time::Instant;

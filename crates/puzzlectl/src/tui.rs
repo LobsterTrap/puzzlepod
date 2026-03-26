@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Terminal UI for puzzlectl — interactive branch management.
 //!
 //! Provides a ratatui-based TUI with:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Cross-platform tests for seccomp validation logic.
 //!
 //! Tests the validation functions used by the seccomp USER_NOTIF handler

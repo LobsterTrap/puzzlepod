@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration test: Rogue Agent shell security tests.
 //!
 //! Wraps the shell-based security test scripts so they run as part of

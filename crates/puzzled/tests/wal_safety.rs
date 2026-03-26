@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! WAL crash safety tests.
 //!
 //! Tests write-ahead log durability, recovery, and edge cases including

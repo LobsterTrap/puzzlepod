@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration test: WAL crash recovery at BranchManager level.
 //!
 //! Simulates crashes during commit by writing partial WAL entries,

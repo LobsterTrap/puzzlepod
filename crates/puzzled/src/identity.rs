@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Agent Workload Identity (§4.5).
 //!
 //! Implements SPIFFE-compatible JWT-SVID issuance and verification for agent

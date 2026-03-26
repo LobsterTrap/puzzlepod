@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! HTTP proxy for PuzzlePod network gating.
 //!
 //! Provides application-layer network control for agent sandboxes in Gated mode:

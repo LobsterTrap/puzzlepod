@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! End-to-end adversarial tests: Code runs INSIDE the sandbox.
 //!
 //! Unlike e2e_scenarios.rs (which writes files from the test process),

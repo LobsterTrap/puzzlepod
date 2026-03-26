@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use rustyline::completion::{Completer, Pair};
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;

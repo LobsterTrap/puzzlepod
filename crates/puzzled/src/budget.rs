@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Adaptive budget engine for agent resource allocation.
 //!
 //! Agents start in the Restricted tier. After a configurable number of

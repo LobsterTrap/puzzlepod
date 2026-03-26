@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #[cfg(feature = "bpf_lsm")]
 pub mod bpf_lsm;
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! HTTP proxy handler tests.
 //!
 //! Tests domain filtering, host extraction, body size limits, and SSRF

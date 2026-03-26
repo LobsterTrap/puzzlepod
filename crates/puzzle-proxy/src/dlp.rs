@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! DLP (Data Loss Prevention) content inspection engine.
 //!
 //! Scans request and response bodies for sensitive data patterns (credentials,

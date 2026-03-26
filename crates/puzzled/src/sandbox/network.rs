@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Network isolation and gating for agent sandboxes.
 //!
 //! Implements three network modes:

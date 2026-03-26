@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! puzzle-phase2-demo — Live Phase 2 demo for PuzzlePod hardening features.
 //!
 //! Exercises real Rust code from puzzled, puzzled-types, and puzzle-proxy crates

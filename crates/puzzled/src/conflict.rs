@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Cross-branch conflict detection.
 //!
 //! Tracks which files are modified by each active branch, and detects

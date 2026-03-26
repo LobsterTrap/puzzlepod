@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! SELinux integration for agent sandboxes.
 //!
 //! Validates that SELinux is available and in enforcing mode, verifies

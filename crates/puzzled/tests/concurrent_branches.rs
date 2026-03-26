@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration test: Concurrent branch operations (Linux-only).
 //!
 //! Tests multiple simultaneous branches to verify isolation

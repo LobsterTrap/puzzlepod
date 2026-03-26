@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! WAL performance benchmarks.
 //!
 //! Measures append, recovery, and backup/restore throughput to verify

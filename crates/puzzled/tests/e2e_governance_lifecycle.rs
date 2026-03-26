@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! End-to-end governance lifecycle — full-stack demonstration.
 //!
 //! Exercises the complete PuzzlePod governance pipeline across three acts,

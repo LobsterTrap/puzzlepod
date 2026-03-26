@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // DC: Single-threaded seccomp notification handling is sufficient for typical
 // workloads (<100 execve/s). For higher throughput, consider per-branch handler threads.
 

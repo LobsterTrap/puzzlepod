@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration test: Profile loading and validation.
 //!
 //! Tests parsing all bundled profiles and validates that invalid profiles

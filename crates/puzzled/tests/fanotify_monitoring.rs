@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration tests: Fanotify behavioral monitoring (Linux-only, requires root).
 //!
 //! Tests that fanotify-based behavioral monitoring correctly detects

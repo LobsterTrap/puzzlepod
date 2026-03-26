@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! puzzle-hook — OCI runtime hook for PuzzlePod governance integration.
 //!
 //! This binary is invoked by the container runtime (crun) at two OCI lifecycle

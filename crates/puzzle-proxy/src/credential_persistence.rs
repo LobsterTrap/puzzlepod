@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! §3.4 G12: Credential mapping persistence for restart recovery.
 //!
 //! Persists phantom token → credential spec mappings to `credential_mappings.json`

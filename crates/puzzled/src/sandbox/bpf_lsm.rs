@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! BPF LSM loader — loads and manages exec_guard BPF programs.
 //!
 //! On Linux, uses the `aya` crate for type-safe BPF program loading,

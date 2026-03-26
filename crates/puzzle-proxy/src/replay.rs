@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Network request journal and replay engine.
 //!
 //! Side-effect requests (POST/PUT/DELETE/PATCH) from agents in Gated mode

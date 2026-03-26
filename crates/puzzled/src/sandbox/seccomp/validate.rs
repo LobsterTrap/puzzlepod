@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Functions in this module are pub(crate) for test access but only called from
 // libseccomp_v2_5-gated code at runtime, so they appear unused without that cfg.
 #![allow(dead_code)]

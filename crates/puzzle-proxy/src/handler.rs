@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! HTTP request handler for the agent proxy.
 //!
 //! Routes requests based on method:

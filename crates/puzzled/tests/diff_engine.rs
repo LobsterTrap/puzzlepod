@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration test: DiffEngine complex scenarios.
 //!
 //! Tests nested directories, binary files, special characters in filenames,

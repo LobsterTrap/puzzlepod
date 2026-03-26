@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! PuzzlePod governance daemon — library interface.
 //!
 //! Re-exports internal modules for integration testing.

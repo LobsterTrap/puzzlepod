@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Integration test: Crash recovery and branch re-discovery.
 //!
 //! Tests that puzzled correctly re-discovers active branches from disk on restart

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Credential store and phantom token manager for the agent proxy.
 //!
 //! Provides secure credential storage with AES-256-GCM encryption at rest,

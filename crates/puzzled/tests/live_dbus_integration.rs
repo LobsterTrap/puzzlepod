@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Live D-Bus integration tests — run against a live puzzled daemon.
 //!
 //! These tests auto-skip when puzzled is not running, so they are safe to

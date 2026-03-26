@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! puzzle-sim-worker — runs inside a sandboxed branch, executing scenario actions.
 //!
 //! Usage: puzzle-sim-worker --scenario /path/to/scenario.yaml --root /merged

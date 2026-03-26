@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Graduated Trust with Behavioral Learning (PRD Section 4.1).
 //!
 //! Tracks per-UID trust scores that drive privilege escalation / de-escalation.

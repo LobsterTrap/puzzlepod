@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Capability dropping and credential switching for agent sandboxes.
 //!
 //! After clone3(), Landlock, and seccomp are applied, the child process

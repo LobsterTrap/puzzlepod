@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Persistent audit event storage.
 //!
 //! Stores audit events in append-only NDJSON format for querying

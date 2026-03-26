@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Tests verifying security hardening fixes.
 //!
 //! Each test corresponds to a specific fix from the production hardening audit.

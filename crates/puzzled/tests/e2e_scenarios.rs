@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! End-to-end scenario tests: Real-world agentic use cases.
 //!
 //! Each test simulates a realistic AI agent workflow using the full
