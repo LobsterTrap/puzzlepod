@@ -39,9 +39,7 @@ jobs:
   # ---------------------------------------------------------------------------
   resolve-ref:
     name: Resolve Ref
-    if: >
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     outputs:
       ref: ${{ steps.ref.outputs.ref }}
@@ -78,7 +76,9 @@ jobs:
   ci:
     name: Build & Test
     needs: [resolve-ref]
-    if: github.event_name != 'workflow_run' || needs.resolve-ref.outputs.ref != ''
+    if: |
+      always() &&
+      (github.event_name != 'workflow_run' || needs.resolve-ref.outputs.ref != '')
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
@@ -143,6 +143,7 @@ jobs:
   integration:
     name: D-Bus Integration
     needs: [resolve-ref, ci]
+    if: always() && needs.ci.result == 'success'
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
@@ -271,7 +272,7 @@ jobs:
   security-test:
     name: Security Tests
     needs: [resolve-ref]
-    if: github.event_name == 'workflow_dispatch'
+    if: always() && github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, privileged]
     continue-on-error: true
     container:
@@ -316,7 +317,7 @@ jobs:
   release:
     name: Release Build
     needs: [resolve-ref, ci]
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: always() && needs.ci.result == 'success' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/lobstertrap/puzzlepod/ci:fedora42

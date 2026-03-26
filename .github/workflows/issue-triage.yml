@@ -17,12 +17,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
           REPO: ${{ github.repository }}
         run: |
+          # Fetch issue body via API to avoid shell injection from user-controlled input
+          gh api "/repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.body // ""' > /tmp/issue-body.txt
+
           # Check for agent diagnostic section
-          if echo "$ISSUE_BODY" | grep -q "Agent Diagnostic"; then
-            CONTENT=$(echo "$ISSUE_BODY" | sed -n '/Agent Diagnostic/,/^##\|^$/p' | tail -n +2)
+          if grep -q "Agent Diagnostic" /tmp/issue-body.txt; then
+            CONTENT=$(sed -n '/Agent Diagnostic/,/^##\|^$/p' /tmp/issue-body.txt | tail -n +2)
             if [ -n "$CONTENT" ] && [ "$CONTENT" != "N/A" ]; then
               echo "Agent diagnostic section found"
               exit 0

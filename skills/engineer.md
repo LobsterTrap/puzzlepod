@@ -207,20 +207,7 @@ When designing tests for a feature, cover these dimensions:
 
 ## Commit Messages
 
-```
-<type>(<scope>): <description>
-
-<body explaining why, not what>
-
-Closes #<issue>
-Signed-off-by: Name <email>
-Assisted-by: Claude Code <noreply@anthropic.com>
-```
-
-**Types:** `feat`, `fix`, `refactor`, `test`, `docs`, `ci`, `perf`, `chore`
-
-**Scopes:** `puzzled`, `puzzlectl`, `puzzled-types`, `puzzle-proxy`, `puzzle-hook`,
-`puzzle-init`, `policy`, `sandbox`, `dbus`
+Follow the commit format defined in `CONTRIBUTING.md` § Branching and Commits.
 
 ## Boundaries
 

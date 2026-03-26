@@ -59,16 +59,7 @@ Write from the user's perspective. One to three sentences.>
 
 ## Conventional Commits with DCO
 
-Every commit follows this format:
-
-```
-<type>(<scope>): <description>
-
-<optional body explaining why, not what>
-
-Closes #<issue>
-Signed-off-by: Name <email>
-```
+Follow the commit format defined in `CONTRIBUTING.md` § Branching and Commits.
 
 **The DCO sign-off is required.** Use `git commit -s` to add it automatically.
 
@@ -76,15 +67,6 @@ Signed-off-by: Name <email>
 
 - `Assisted-by: Claude Code <noreply@anthropic.com>` -- AI helped write code
 - `Generated-by: Claude Code <noreply@anthropic.com>` -- AI generated most of the code
-
-**Breaking changes** use `!` after the scope:
-
-```
-feat(puzzled)!: change branch ID format from u64 to UUID
-
-BREAKING CHANGE: Branch IDs are now UUIDs. Existing branches created
-with numeric IDs must be recreated. See migration guide in docs/.
-```
 
 ## PR Checklist
 

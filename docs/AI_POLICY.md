@@ -101,7 +101,7 @@ AI code assistants must not have access to:
 Before using AI-generated code that resembles or references third-party
 implementations:
 
-1. Verify the source license is compatible with PuzzlePod's license (MIT)
+1. Verify the source license is compatible with PuzzlePod's license (Apache-2.0)
 2. If the AI output closely matches a GPL, LGPL, or AGPL licensed work, do not use
    it without legal review
 3. Run `cargo deny check licenses` as part of CI to catch dependency license issues

@@ -38,7 +38,7 @@ env:
         name: developer
 
     instructions: |
-      ${ENGINEER_INSTRUCTIONS}
+      Read /tmp/engineer-instructions.md for full engineering instructions and conventions.
 
     prompt: |
       Solve GitHub issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
@@ -99,7 +99,7 @@ env:
         name: developer
 
     instructions: |
-      ${ENGINEER_INSTRUCTIONS}
+      Read /tmp/engineer-instructions.md for full engineering instructions and conventions.
 
     prompt: |
       You previously implemented changes for issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
@@ -291,11 +291,12 @@ jobs:
           mkdir -p "$HOME/.config/goose"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-          # Load engineer instructions from skill file (single source of truth)
-          ENGINEER_INSTRUCTIONS=$(cat skills/engineer.md)
-          export ENGINEER_INSTRUCTIONS
+          # Copy engineer instructions to a known path (avoids envsubst YAML injection)
+          cp skills/engineer.md /tmp/engineer-instructions.md
 
-          MAX_ROUNDS=5
+          # Job timeout is 60 min; each round can take up to 40 min
+          # (20 min engineer + 20 min reviewer). Two rounds is the realistic max.
+          MAX_ROUNDS=2
           FINAL_VERDICT="NONE"
           FINAL_ROUND=0
 
@@ -316,11 +317,11 @@ jobs:
 
             if [ "$ROUND" -eq 1 ]; then
               echo "$GOOSE_ENGINEER_RECIPE" \
-                | envsubst '$ISSUE_NUMBER $ISSUE_TITLE $WORK_TYPE $ENGINEER_INSTRUCTIONS' \
+                | envsubst '$ISSUE_NUMBER $ISSUE_TITLE $WORK_TYPE' \
                 > /tmp/recipe.yaml
             else
               echo "$GOOSE_ENGINEER_FIX_RECIPE" \
-                | envsubst '$ISSUE_NUMBER $ISSUE_TITLE $WORK_TYPE $ENGINEER_INSTRUCTIONS' \
+                | envsubst '$ISSUE_NUMBER $ISSUE_TITLE $WORK_TYPE' \
                 > /tmp/recipe.yaml
             fi
 
@@ -336,8 +337,8 @@ jobs:
               break
             fi
 
-            # Stage changes for the reviewer to see cumulative diff
-            git add -A
+            # Stage only source directories (avoid temp files and Goose artifacts)
+            git add -A -- crates/ policies/ docs/ scripts/ tests/ Cargo.toml Cargo.lock
 
             # ---- Reviewer phase ----
             echo "=== Reviewer phase (round $ROUND) ==="
@@ -357,12 +358,11 @@ jobs:
               cat /tmp/review.md >> /tmp/review-history.md
             fi
 
-            # Check verdict
+            # Check verdict (fail closed: anything that isn't PASS is FAIL)
             if [ -f /tmp/review-verdict.txt ]; then
-              VERDICT=$(cat /tmp/review-verdict.txt | tr -d '[:space:]')
-              echo "Round $ROUND verdict: $VERDICT"
+              echo "Round $ROUND verdict: $(cat /tmp/review-verdict.txt)"
 
-              if [ "$VERDICT" = "PASS" ]; then
+              if grep -qi '^PASS' /tmp/review-verdict.txt; then
                 FINAL_VERDICT="PASS"
                 echo "::notice::Reviewer PASSED in round $ROUND"
                 echo "::endgroup::"

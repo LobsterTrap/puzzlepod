@@ -34,3 +34,4 @@ Create these labels for the agent dispatch workflow:
 | `agent:in-progress` | `#fbca04` | State: agent is working |
 | `agent:pr-created` | `#0e8a16` | State: draft PR exists |
 | `agent:failed` | `#b60205` | State: agent failed |
+| `agent:needs-review` | `#e4e669` | State: PR created but reviewer did not pass |

@@ -1,24 +1,2 @@
 # PuzzlePod CODEOWNERS
-#
-# Default owner for everything
 * @lobstertrap
-
-# Governance daemon
-crates/puzzled/ @lobstertrap
-
-# CLI tool
-crates/puzzlectl/ @lobstertrap
-
-# Shared types
-crates/puzzled-types/ @lobstertrap
-
-# Security-sensitive paths (see branch protection rules for reviewer requirements)
-selinux/ @lobstertrap
-policies/ @lobstertrap
-crates/puzzled/src/sandbox/ @lobstertrap
-
-# CI/CD and workflows
-.github/ @lobstertrap
-
-# Documentation
-docs/ @lobstertrap
