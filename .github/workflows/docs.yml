@@ -24,10 +24,18 @@ jobs:
   rustdoc:
     name: Build Rustdoc
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config clang \
+            libssl-dev libdbus-1-dev libseccomp-dev libsystemd-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Build documentation
         run: cargo doc --workspace --no-deps --document-private-items
