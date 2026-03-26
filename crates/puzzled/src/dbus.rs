@@ -898,13 +898,12 @@ impl ManagerInterface {
     ) -> zbus::fdo::Result<String> {
         tracing::info!("ListBranches requested");
 
-        let uid = get_caller_uid(&header, connection).await?;
+        let _uid = get_caller_uid(&header, connection).await?;
         let manager = &*self.manager;
-        let branches: Vec<_> = manager
-            .list()
-            .into_iter()
-            .filter(|b| uid == 0 || b.uid == uid)
-            .collect();
+        // Access control is enforced by D-Bus policy (only root and wheel
+        // group can call this method). No additional UID filtering — all
+        // callers with D-Bus access can list all branches.
+        let branches: Vec<_> = manager.list();
 
         let json = serde_json::to_string(&branches)
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
@@ -1509,25 +1508,10 @@ impl ManagerInterface {
             )
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
 
-        // PH2: Non-root callers can only see events matching their UID.
-        // Check the `uid` field in event details; events without a uid field
-        // (e.g., policy_reloaded, wal_recovery) are only visible to root.
-        let filtered_events: Vec<_> = if uid == 0 {
-            events
-        } else {
-            events
-                .into_iter()
-                .filter(|event| {
-                    event
-                        .event
-                        .details
-                        .get("uid")
-                        .and_then(|v| v.as_u64())
-                        .map(|event_uid| event_uid == uid as u64)
-                        .unwrap_or(false)
-                })
-                .collect()
-        };
+        // Access control is enforced by D-Bus policy (only root and wheel
+        // group can call this method). All callers with D-Bus access can
+        // see all audit events.
+        let filtered_events = events;
 
         let json = serde_json::to_string(&filtered_events)
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
@@ -3764,23 +3748,17 @@ async fn get_caller_uid(
     }
 }
 
-/// Check that a caller has access to a branch (must be owner or root).
+/// Check that a caller has access to a branch.
+/// Access control is enforced by D-Bus policy (only root and wheel group
+/// can call methods). Any caller with D-Bus access can operate on any branch.
 /// H-30: Returns error when branch is not found instead of silently allowing access.
 fn check_branch_access(
-    caller_uid: u32,
+    _caller_uid: u32,
     manager: &BranchManager,
     id: &BranchId,
 ) -> zbus::fdo::Result<()> {
-    if caller_uid == 0 {
-        return Ok(());
-    }
-    if let Some(info) = manager.inspect(id) {
-        if info.uid == caller_uid {
-            return Ok(());
-        }
-        Err(zbus::fdo::Error::AccessDenied(
-            "you do not own this branch".into(),
-        ))
+    if manager.inspect(id).is_some() {
+        Ok(())
     } else {
         // H-30: Branch not found — fail closed instead of allowing access
         Err(zbus::fdo::Error::Failed("branch not found".into()))

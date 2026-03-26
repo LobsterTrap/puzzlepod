@@ -31,8 +31,8 @@ use tokio::sync::mpsc;
 use crate::client::PuzzledClient;
 
 use app::{
-    App, BranchDetailTab, BranchInfo, ConfirmAction, ConfirmDialog, DashboardFocus, DashboardTab,
-    DetailFocus, Screen,
+    App, BranchDetailTab, BranchIdWrapper, BranchInfo, ConfirmAction, ConfirmDialog,
+    DashboardFocus, DashboardMode, DashboardTab, DetailFocus, Screen,
 };
 use event::{ActionResult, AppEvent, EventHandler};
 use theme::{NotificationLevel, Theme};
@@ -181,6 +181,7 @@ async fn handle_key_event(
         Screen::BranchDetail(_) => handle_detail_key(app, key, client).await,
         Screen::CreateBranch => handle_create_branch_key(app, key, client).await,
         Screen::CreateCredential => handle_create_credential_key(app, key, client).await,
+        Screen::AuditLog => handle_audit_log_key(app, key, client).await,
     }
 }
 
@@ -220,15 +221,32 @@ async fn handle_dashboard_key(
         },
         KeyCode::Enter => {
             if app.dashboard_focus == DashboardFocus::BranchTable {
-                if let Some(branch) = app.selected_branch() {
-                    let id = branch.id.0.clone();
+                // Clone branch data before mutating app
+                let branch_data = app.selected_branch().map(|b| (b.id.0.clone(), b.clone()));
+                if let Some((id, branch_clone)) = branch_data {
                     app.detail_tab = BranchDetailTab::Logs;
                     app.detail_scroll = 0;
                     app.audit_scroll = 0;
 
-                    // Load detail data
-                    if let Some(c) = client {
-                        load_branch_detail(app, c, &id).await;
+                    if app.dashboard_mode == DashboardMode::Log {
+                        // Log mode: build detail from cached branch + audit events
+                        app.detail_info = serde_json::to_value(&branch_clone).ok();
+                        app.detail_diff.clear();
+                        app.policy_text.clear();
+                        if let Some(c) = client {
+                            let filter = serde_json::json!({"branch_id": id}).to_string();
+                            if let Ok(json) = c.query_audit_events(&filter).await {
+                                if let Ok(events) = serde_json::from_str::<Vec<serde_json::Value>>(&json) {
+                                    app.audit_events = events;
+                                }
+                            }
+                        }
+                        app.status_message = format!("Log: {} ({} events)", &id[..id.len().min(8)], app.audit_events.len());
+                    } else {
+                        // Live mode: load from daemon
+                        if let Some(c) = client {
+                            load_branch_detail(app, c, &id).await;
+                        }
                     }
 
                     app.screen = Screen::BranchDetail(id);
@@ -259,7 +277,11 @@ async fn handle_dashboard_key(
         }
         KeyCode::Char('r') => {
             if let Some(c) = client {
-                refresh_data(app, c).await;
+                if app.dashboard_mode == DashboardMode::Log {
+                    load_log_mode_branches(app, c).await;
+                } else {
+                    refresh_data(app, c).await;
+                }
             } else {
                 app.status_message = "Not connected to daemon".to_string();
             }
@@ -269,6 +291,29 @@ async fn handle_dashboard_key(
         }
         KeyCode::Char('l') | KeyCode::Char('2') => {
             app.dashboard_tab = DashboardTab::Settings;
+        }
+        KeyCode::Char('L') => {
+            app.screen = Screen::AuditLog;
+            app.audit_log_scroll = 0;
+            if let Some(c) = client {
+                load_audit_log(app, c).await;
+            }
+        }
+        KeyCode::Char('m') => {
+            app.dashboard_mode = match app.dashboard_mode {
+                DashboardMode::Live => {
+                    if let Some(c) = client {
+                        load_log_mode_branches(app, c).await;
+                    }
+                    DashboardMode::Log
+                }
+                DashboardMode::Log => {
+                    app.branches.clear();
+                    app.branch_table_state.select(None);
+                    app.status_message = "Live mode".to_string();
+                    DashboardMode::Live
+                }
+            };
         }
         _ => {}
     }
@@ -569,6 +614,216 @@ async fn handle_create_credential_key(
     }
 }
 
+async fn handle_audit_log_key(
+    app: &mut App,
+    key: KeyEvent,
+    client: &Option<PuzzledClient>,
+) {
+    match key.code {
+        KeyCode::Esc => {
+            app.screen = Screen::Dashboard;
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.audit_log_scroll = app.audit_log_scroll.saturating_add(1);
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.audit_log_scroll = app.audit_log_scroll.saturating_sub(1);
+        }
+        KeyCode::Char('g') => {
+            app.audit_log_scroll = 0;
+        }
+        KeyCode::Char('G') => {
+            app.audit_log_scroll = u16::MAX;
+        }
+        KeyCode::Tab => {
+            app.audit_log_filter_focus = (app.audit_log_filter_focus + 1) % 2;
+        }
+        KeyCode::Enter | KeyCode::Char('r') => {
+            if let Some(c) = client {
+                load_audit_log(app, c).await;
+            }
+        }
+        KeyCode::Backspace => {
+            if app.audit_log_filter_focus == 0 {
+                app.audit_log_filter_branch.pop();
+            } else {
+                app.audit_log_filter_type.pop();
+            }
+        }
+        KeyCode::Char(c) => {
+            if app.audit_log_filter_focus == 0 {
+                app.audit_log_filter_branch.push(c);
+            } else {
+                app.audit_log_filter_type.push(c);
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn load_log_mode_branches(app: &mut App, client: &PuzzledClient) {
+    let filter = serde_json::json!({"limit": 2000}).to_string();
+    match client.query_audit_events(&filter).await {
+        Ok(json) => {
+            if let Ok(events) = serde_json::from_str::<Vec<serde_json::Value>>(&json) {
+                let event_count = events.len();
+                app.branches = reconstruct_branches(&events);
+                app.daemon_status.branch_count = app.branches.len();
+                if !app.branches.is_empty() {
+                    app.branch_table_state.select(Some(0));
+                } else {
+                    app.branch_table_state.select(None);
+                }
+                app.status_message = format!(
+                    "Log mode: {} branches from {} events",
+                    app.branches.len(),
+                    event_count
+                );
+            }
+        }
+        Err(e) => {
+            app.status_message = format!("Log mode failed: {}", e);
+        }
+    }
+}
+
+fn reconstruct_branches(events: &[serde_json::Value]) -> Vec<BranchInfo> {
+    use std::collections::HashMap;
+
+    struct BranchAccum {
+        profile: String,
+        state: String,
+        uid: u32,
+        created_at: Option<String>,
+    }
+
+    let mut branches: HashMap<String, BranchAccum> = HashMap::new();
+
+    for evt in events {
+        // Handle nested schema: { event: { event_type, branch_id, details }, timestamp }
+        let (event_type, branch_id, details, timestamp) = if let Some(event_obj) = evt.get("event")
+        {
+            let et = event_obj
+                .get("event_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let bid = event_obj
+                .get("branch_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let d = event_obj.get("details");
+            let ts = evt.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+            (et, bid, d, ts)
+        } else {
+            let et = evt
+                .get("event_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let bid = evt
+                .get("branch_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let d = evt.get("details");
+            let ts = evt.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+            (et, bid, d, ts)
+        };
+
+        if branch_id.is_empty() {
+            continue;
+        }
+
+        let entry = branches.entry(branch_id.to_string()).or_insert(BranchAccum {
+            profile: String::new(),
+            state: "Unknown".to_string(),
+            uid: 0,
+            created_at: None,
+        });
+
+        match event_type {
+            "branch_created" => {
+                if let Some(d) = details {
+                    entry.profile = d
+                        .get("profile")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    entry.uid =
+                        d.get("uid").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                }
+                entry.state = "Created".to_string();
+                if entry.created_at.is_none() {
+                    entry.created_at = Some(timestamp.to_string());
+                }
+            }
+            "branch_committed" => {
+                entry.state = "Committed".to_string();
+            }
+            "branch_rolled_back" => {
+                entry.state = "RolledBack".to_string();
+            }
+            "commit_rejected" => {
+                entry.state = "Denied".to_string();
+            }
+            "policy_violation" => {
+                // Only update if still in created/active state
+                if entry.state == "Created" || entry.state == "Unknown" {
+                    entry.state = "Denied".to_string();
+                }
+            }
+            "branch_frozen" => {
+                entry.state = "Frozen".to_string();
+            }
+            _ => {}
+        }
+    }
+
+    let mut result: Vec<BranchInfo> = branches
+        .into_iter()
+        .map(|(id, acc)| BranchInfo {
+            id: BranchIdWrapper(id),
+            profile: if acc.profile.is_empty() {
+                "unknown".to_string()
+            } else {
+                acc.profile
+            },
+            state: acc.state,
+            pid: None,
+            uid: acc.uid,
+            base_path: None,
+            created_at: acc.created_at,
+            expires_at: None,
+            selinux_context: None,
+        })
+        .collect();
+
+    // Sort newest first
+    result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    result
+}
+
+async fn load_audit_log(app: &mut App, client: &PuzzledClient) {
+    let mut filter = serde_json::json!({"limit": 500});
+    if !app.audit_log_filter_branch.is_empty() {
+        filter["branch_id"] = serde_json::Value::String(app.audit_log_filter_branch.clone());
+    }
+    if !app.audit_log_filter_type.is_empty() {
+        filter["event_type"] = serde_json::Value::String(app.audit_log_filter_type.clone());
+    }
+    match client.query_audit_events(&filter.to_string()).await {
+        Ok(json) => {
+            if let Ok(events) = serde_json::from_str::<Vec<serde_json::Value>>(&json) {
+                let count = events.len();
+                app.audit_log_events = events;
+                app.audit_log_scroll = 0;
+                app.status_message = format!("{} audit events loaded", count);
+            }
+        }
+        Err(e) => {
+            app.status_message = format!("Audit query failed: {}", e);
+        }
+    }
+}
+
 async fn handle_confirm_key(
     app: &mut App,
     key: KeyEvent,
@@ -650,13 +905,29 @@ async fn handle_tick(app: &mut App, client: &Option<PuzzledClient>) {
         app.screen = Screen::Dashboard;
     }
 
-    // Auto-refresh branch list on tick
-    if app.screen == Screen::Dashboard {
+    // Auto-refresh branch list on tick: merge polled branches with
+    // signal-sourced entries so ephemeral branches (already committed/
+    // rolled back before the poll) are not lost.
+    // Skip in Log mode — branch table is populated from audit events.
+    if app.screen == Screen::Dashboard && app.dashboard_mode == DashboardMode::Live {
         if let Some(c) = client {
-            if let Ok(branches) = fetch_branches(c).await {
+            if let Ok(polled) = fetch_branches(c).await {
                 let selected = app.branch_table_state.selected();
-                app.daemon_status.branch_count = branches.len();
-                app.branches = branches;
+
+                // Update existing entries that the daemon still knows about
+                for pb in &polled {
+                    if let Some(existing) = app.branches.iter_mut().find(|b| b.id.0 == pb.id.0) {
+                        *existing = pb.clone();
+                    }
+                }
+                // Add any polled branches we haven't seen via signals
+                for pb in &polled {
+                    if !app.branches.iter().any(|b| b.id.0 == pb.id.0) {
+                        app.branches.push(pb.clone());
+                    }
+                }
+
+                app.daemon_status.branch_count = app.branches.len();
                 // Preserve selection
                 if let Some(idx) = selected {
                     if idx < app.branches.len() {
@@ -679,6 +950,24 @@ fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
             branch_id,
             profile,
         } => {
+            // Add branch to table from signal (catches ephemeral branches
+            // that disappear before the next polling tick)
+            let entry = BranchInfo {
+                id: BranchIdWrapper(branch_id.clone()),
+                profile: profile.clone(),
+                state: "Active".to_string(),
+                pid: None,
+                uid: 0,
+                base_path: None,
+                created_at: None,
+                expires_at: None,
+                selinux_context: None,
+            };
+            app.branches.push(entry);
+            app.daemon_status.branch_count = app.branches.len();
+            if app.branches.len() == 1 {
+                app.branch_table_state.select(Some(0));
+            }
             app.notify(
                 format!("Branch created: {} ({})", &branch_id[..branch_id.len().min(8)], profile),
                 NotificationLevel::Info,
@@ -689,6 +978,10 @@ fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
             changeset_hash: _,
             profile: _,
         } => {
+            // Update branch state in table
+            if let Some(b) = app.branches.iter_mut().find(|b| b.id.0 == branch_id) {
+                b.state = "Committed".to_string();
+            }
             app.notify(
                 format!("Branch committed: {}", &branch_id[..branch_id.len().min(8)]),
                 NotificationLevel::Info,
@@ -698,6 +991,9 @@ fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
             branch_id,
             reason,
         } => {
+            if let Some(b) = app.branches.iter_mut().find(|b| b.id.0 == branch_id) {
+                b.state = "RolledBack".to_string();
+            }
             app.notify(
                 format!("Branch rolled back: {} ({})", &branch_id[..branch_id.len().min(8)], reason),
                 NotificationLevel::Warning,
@@ -707,6 +1003,9 @@ fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
             branch_id,
             diff_summary: _,
         } => {
+            if let Some(b) = app.branches.iter_mut().find(|b| b.id.0 == branch_id) {
+                b.state = "GovernanceReview".to_string();
+            }
             app.notify(
                 format!("Review pending: {}", &branch_id[..branch_id.len().min(8)]),
                 NotificationLevel::Warning,
@@ -717,6 +1016,9 @@ fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
             reason,
             ..
         } => {
+            if let Some(b) = app.branches.iter_mut().find(|b| b.id.0 == branch_id) {
+                b.state = "Denied".to_string();
+            }
             app.notify(
                 format!("Policy violation: {} — {}", &branch_id[..branch_id.len().min(8)], reason),
                 NotificationLevel::Error,
@@ -848,8 +1150,14 @@ async fn load_branch_detail(app: &mut App, client: &PuzzledClient, branch_id: &s
             app.detail_info = serde_json::from_str(&info).ok();
             app.status_message = format!("Loaded detail for {}", &branch_id[..branch_id.len().min(8)]);
         }
-        Err(e) => {
-            app.status_message = format!("Inspect failed: {}", e);
+        Err(_) => {
+            // Branch may have been committed/rolled back and removed.
+            // Keep existing cached detail_info if available.
+            if app.detail_info.is_some() {
+                app.status_message = "Branch completed — using cached data".to_string();
+            } else {
+                app.status_message = "Branch no longer exists on daemon".to_string();
+            }
         }
     }
 

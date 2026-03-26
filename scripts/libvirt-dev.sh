@@ -324,19 +324,19 @@ cmd_ssh() {
 cmd_build() {
     ensure_running
     info "Building workspace in VM..."
-    run_in_vm 'source "$HOME/.cargo/env" && cargo build --workspace --release'
+    run_in_vm 'cargo build --workspace --release'
 }
 
 cmd_test() {
     ensure_running
     info "Running tests in VM..."
-    run_in_vm 'source "$HOME/.cargo/env" && cargo test --workspace'
+    run_in_vm 'cargo test --workspace'
 }
 
 cmd_security() {
     ensure_running
     info "Running security tests in VM (requires root)..."
-    run_in_vm 'source "$HOME/.cargo/env" && sudo -E env PATH="$PATH" bash tests/security/run_all.sh'
+    run_in_vm 'sudo -E env PATH="$PATH" bash tests/security/run_all.sh'
 }
 
 cmd_demo() {
@@ -361,17 +361,16 @@ cmd_demo() {
             info "Running Phase 1 demo in VM..."
             # Use -t for TTY allocation (enables color output and interactive prompts)
             ssh "${SSH_OPTS[@]}" -t "${VM_USER}@localhost" \
-                "cd ${VM_PROJECT_DIR} && source \"\$HOME/.cargo/env\" && sudo -E env PATH=\"\$PATH\" demo/run_demo_phase1.sh"
+                "cd ${VM_PROJECT_DIR} && sudo -E env PATH=\"\$PATH\" demo/run_demo_phase1.sh"
             ;;
         phase2)
             info "Running Phase 2 demo in VM..."
             ssh "${SSH_OPTS[@]}" -t "${VM_USER}@localhost" \
-                "cd ${VM_PROJECT_DIR} && source \"\$HOME/.cargo/env\" && sudo -E env PATH=\"\$PATH\" demo/run_demo_phase2.sh"
+                "cd ${VM_PROJECT_DIR} && sudo -E env PATH=\"\$PATH\" demo/run_demo_phase2.sh"
             ;;
         sandbox)
             info "Running Sandbox Live demo in VM (setting up + starting puzzled first)..."
             ssh "${SSH_OPTS[@]}" -t "${VM_USER}@localhost" 'bash -s' << 'SANDBOX_SCRIPT'
-source "$HOME/.cargo/env"
 cd ~/puzzlepod
 sudo -E env PATH="$PATH" bash -c '
     cd ~/puzzlepod
@@ -390,17 +389,17 @@ SANDBOX_SCRIPT
         e2e)
             info "Running E2E Governance demo in VM..."
             ssh "${SSH_OPTS[@]}" -t "${VM_USER}@localhost" \
-                "cd ${VM_PROJECT_DIR} && source \"\$HOME/.cargo/env\" && sudo -E env PATH=\"\$PATH\" demo/e2e_governance_demo.sh"
+                "cd ${VM_PROJECT_DIR} && sudo -E env PATH=\"\$PATH\" demo/e2e_governance_demo.sh"
             ;;
         rootless)
             info "Running Rootless demo in VM (as unprivileged user)..."
             ssh "${SSH_OPTS[@]}" -t "${VM_USER}@localhost" \
-                "cd ${VM_PROJECT_DIR} && source \"\$HOME/.cargo/env\" && demo/run_demo_rootless.sh"
+                "cd ${VM_PROJECT_DIR} && demo/run_demo_rootless.sh"
             ;;
         tui)
             info "Running TUI demo in VM (interactive — press q to exit)..."
             ssh "${SSH_OPTS[@]}" -t "${VM_USER}@localhost" \
-                "cd ${VM_PROJECT_DIR} && source \"\$HOME/.cargo/env\" && demo/run_demo_tui.sh"
+                "cd ${VM_PROJECT_DIR} && demo/run_demo_tui.sh"
             ;;
         all)
             # Note: tui is excluded from 'all' because it is interactive and

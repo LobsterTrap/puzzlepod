@@ -1,5 +1,6 @@
 //! UI screen router and shared chrome (title bar, nav bar, status bar).
 
+pub mod audit_log;
 pub mod branch_detail;
 pub mod branch_draft;
 pub mod branch_logs;
@@ -59,6 +60,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             dashboard::draw_dashboard(f, app, chunks[1], &theme);
             create_credential::draw_create_credential(f, app, chunks[1], &theme);
         }
+        Screen::AuditLog => {
+            audit_log::draw_audit_log(f, app, chunks[1], &theme);
+        }
     }
 
     draw_nav_bar(f, chunks[2], app, &theme);
@@ -80,6 +84,23 @@ fn draw_title_bar(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         Span::styled(" -- ", Style::default().fg(theme.status_err))
     };
 
+    let mode_span = match app.dashboard_mode {
+        super::app::DashboardMode::Live => Span::styled(
+            " LIVE ",
+            Style::default()
+                .fg(theme.bg_dark)
+                .bg(theme.status_ok)
+                .add_modifier(Modifier::BOLD),
+        ),
+        super::app::DashboardMode::Log => Span::styled(
+            " LOG ",
+            Style::default()
+                .fg(theme.bg_dark)
+                .bg(theme.status_warn)
+                .add_modifier(Modifier::BOLD),
+        ),
+    };
+
     let line = Line::from(vec![
         Span::styled(
             " PUZZLEPOD ",
@@ -88,6 +109,8 @@ fn draw_title_bar(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
                 .bg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         ),
+        Span::raw(" "),
+        mode_span,
         Span::styled(
             format!("  {}  ", app.daemon_status.bus_type),
             Style::default().fg(theme.text_dim),
@@ -220,6 +243,8 @@ fn keybinding_hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("c", "create"),
             ("d", "delete"),
             ("h/l", "tab"),
+            ("m", "mode"),
+            ("L", "logs"),
             ("r", "refresh"),
             ("q", "quit"),
         ],
@@ -241,6 +266,13 @@ fn keybinding_hints(app: &App) -> Vec<(&'static str, &'static str)> {
             hints.push(("y", "copy"));
             hints
         }
+        Screen::AuditLog => vec![
+            ("Esc", "back"),
+            ("j/k", "scroll"),
+            ("Tab", "filter"),
+            ("Enter", "reload"),
+            ("r", "refresh"),
+        ],
         Screen::CreateBranch | Screen::CreateCredential => vec![
             ("Tab", "next"),
             ("S-Tab", "prev"),

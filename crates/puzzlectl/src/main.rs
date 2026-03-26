@@ -125,6 +125,9 @@ enum Command {
         /// via puzzle-sim-worker. Requires Linux and puzzled running.
         #[arg(long)]
         sandbox: bool,
+        /// Add delays between steps so TUI can poll and display branch state changes
+        #[arg(long)]
+        pace: bool,
     },
     /// Interactive terminal UI for branch management
     #[cfg(feature = "tui")]
@@ -680,6 +683,7 @@ async fn main() -> Result<()> {
             profile_dir,
             storage_base,
             sandbox,
+            pace,
         } => {
             let client = client::PuzzledClient::connect(&cli.bus).await?;
             let json_output = sim_output.as_deref() == Some("json");
@@ -698,6 +702,7 @@ async fn main() -> Result<()> {
                     &storage_base,
                     json_output,
                     mode,
+                    pace,
                 )
                 .await
             } else if let Some(name) = run {
@@ -709,6 +714,7 @@ async fn main() -> Result<()> {
                     &storage_base,
                     json_output,
                     mode,
+                    pace,
                 )
                 .await
             } else {

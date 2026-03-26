@@ -43,6 +43,14 @@ pub enum Screen {
     BranchDetail(String),
     CreateBranch,
     CreateCredential,
+    AuditLog,
+}
+
+/// Dashboard data mode: live D-Bus polling or historical audit log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DashboardMode {
+    Live,
+    Log,
 }
 
 /// Dashboard tab selection.
@@ -192,6 +200,7 @@ pub struct App {
     pub status_message: String,
 
     // Dashboard state
+    pub dashboard_mode: DashboardMode,
     pub dashboard_focus: DashboardFocus,
     pub dashboard_tab: DashboardTab,
     pub branches: Vec<BranchInfo>,
@@ -229,6 +238,13 @@ pub struct App {
     // Splash timing
     pub splash_start: Instant,
 
+    // Audit log mode state
+    pub audit_log_events: Vec<serde_json::Value>,
+    pub audit_log_scroll: u16,
+    pub audit_log_filter_branch: String,
+    pub audit_log_filter_type: String,
+    pub audit_log_filter_focus: usize,
+
     // Reject reason input (future: interactive input)
     #[allow(dead_code)]
     pub reject_reason_input: Option<String>,
@@ -242,6 +258,7 @@ impl App {
             should_quit: false,
             status_message: String::new(),
 
+            dashboard_mode: DashboardMode::Live,
             dashboard_focus: DashboardFocus::BranchTable,
             dashboard_tab: DashboardTab::Credentials,
             branches: Vec::new(),
@@ -269,6 +286,13 @@ impl App {
             confirm_dialog: None,
             notifications: Vec::new(),
             splash_start: Instant::now(),
+
+            audit_log_events: Vec::new(),
+            audit_log_scroll: 0,
+            audit_log_filter_branch: String::new(),
+            audit_log_filter_type: String::new(),
+            audit_log_filter_focus: 0,
+
             reject_reason_input: None,
         }
     }

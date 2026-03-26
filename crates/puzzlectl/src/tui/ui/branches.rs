@@ -14,6 +14,7 @@ pub fn draw_branches_table(f: &mut Frame, app: &mut App, area: Rect, theme: &The
         Cell::from(" ID"),
         Cell::from("STATE"),
         Cell::from("PROFILE"),
+        Cell::from("TIME"),
         Cell::from("PID"),
     ])
     .style(
@@ -36,11 +37,16 @@ pub fn draw_branches_table(f: &mut Frame, app: &mut App, area: Rect, theme: &The
 
             let state_color = theme.branch_state_color(&b.state);
             let pid_str = b.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string());
+            let time_str = b.created_at.as_deref().map(|ts| {
+                // Extract HH:MM:SS from ISO timestamp like "2026-03-26T19:14:18.123Z"
+                if ts.len() >= 19 { &ts[11..19] } else { ts }
+            }).unwrap_or("-");
 
             Row::new(vec![
                 Cell::from(format!(" {}", short_id)).style(Style::default().fg(theme.text)),
                 Cell::from(b.state.clone()).style(Style::default().fg(state_color)),
                 Cell::from(b.profile.clone()).style(Style::default().fg(theme.text_dim)),
+                Cell::from(time_str.to_string()).style(Style::default().fg(theme.muted)),
                 Cell::from(pid_str).style(Style::default().fg(theme.muted)),
             ])
         })
@@ -70,10 +76,11 @@ pub fn draw_branches_table(f: &mut Frame, app: &mut App, area: Rect, theme: &The
         Table::new(
             rows,
             [
-                Constraint::Percentage(30),
-                Constraint::Percentage(25),
                 Constraint::Percentage(25),
                 Constraint::Percentage(20),
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+                Constraint::Percentage(15),
             ],
         )
         .header(header)

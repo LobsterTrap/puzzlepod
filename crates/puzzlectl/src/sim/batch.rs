@@ -16,6 +16,7 @@ async fn run_scenario(
     storage_base: &str,
     verbose: bool,
     mode: SimMode,
+    pace: bool,
 ) -> Result<ScenarioResult> {
     let mut engine = SimEngine::new(storage_base).with_mode(mode);
     let mut scenario = scenario.clone();
@@ -47,6 +48,11 @@ async fn run_scenario(
 
     if verbose {
         println!("[orchestrator] Branch {} started", &bid[..8.min(bid.len())]);
+    }
+
+    // --pace: let TUI poll and see the branch in Active state
+    if pace {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     }
 
     let action_count;
@@ -84,6 +90,11 @@ async fn run_scenario(
             }
         }
         action_count = steps.iter().filter(|s| !s.skipped).count();
+    }
+
+    // --pace: let TUI poll and see the branch with executed actions
+    if pace {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     }
 
     if verbose {
@@ -127,6 +138,7 @@ pub async fn run_one(
         storage_base,
         json_output,
         SimMode::Direct,
+        false,
     )
     .await
 }
@@ -139,6 +151,7 @@ pub async fn run_one_with_mode(
     storage_base: &str,
     json_output: bool,
     mode: SimMode,
+    pace: bool,
 ) -> i32 {
     let all = match discover_scenarios(scenarios_dir) {
         Ok(s) => s,
@@ -171,6 +184,7 @@ pub async fn run_one_with_mode(
         storage_base,
         !json_output,
         mode,
+        pace,
     )
     .await
     {
@@ -208,6 +222,7 @@ pub async fn run_all(
         storage_base,
         json_output,
         SimMode::Direct,
+        false,
     )
     .await
 }
@@ -219,6 +234,7 @@ pub async fn run_all_with_mode(
     storage_base: &str,
     json_output: bool,
     mode: SimMode,
+    pace: bool,
 ) -> i32 {
     let all = match discover_scenarios(scenarios_dir) {
         Ok(s) => s,
@@ -253,6 +269,7 @@ pub async fn run_all_with_mode(
             storage_base,
             !json_output,
             mode,
+            pace,
         )
         .await
         {

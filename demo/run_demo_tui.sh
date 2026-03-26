@@ -117,35 +117,35 @@ SIM_ARGS='$SIM_ARGS'
 sleep 8
 
 # Scenario 1: Safe code edit (should commit successfully)
-\$PUZZLECTL sim --run safe_code_edit \$SIM_ARGS 2>/dev/null || true
-sleep 8
+\$PUZZLECTL sim --run safe_code_edit --pace \$SIM_ARGS || true
+sleep 4
 
 # Scenario 2: Credential leak (policy violation — rejected)
-\$PUZZLECTL sim --run credential_leak \$SIM_ARGS 2>/dev/null || true
-sleep 8
+\$PUZZLECTL sim --run credential_leak --pace \$SIM_ARGS || true
+sleep 4
 
 # Scenario 3: Persistence attack (policy violation — rejected)
-\$PUZZLECTL sim --run persistence_attack \$SIM_ARGS 2>/dev/null || true
-sleep 8
+\$PUZZLECTL sim --run persistence_attack --pace \$SIM_ARGS || true
+sleep 4
 
 # Scenario 4: Network exfiltration (policy violation — rejected)
-\$PUZZLECTL sim --run network_exfiltration \$SIM_ARGS 2>/dev/null || true
-sleep 8
+\$PUZZLECTL sim --run network_exfiltration --pace \$SIM_ARGS || true
+sleep 4
 
 # Scenario 5: Multi-file refactor (should commit)
-\$PUZZLECTL sim --run multi_file_refactor \$SIM_ARGS 2>/dev/null || true
-sleep 8
+\$PUZZLECTL sim --run multi_file_refactor --pace \$SIM_ARGS || true
+sleep 4
 
 # Scenario 6: Mixed safe and sensitive (rejected — sensitive content)
-\$PUZZLECTL sim --run mixed_safe_and_sensitive \$SIM_ARGS 2>/dev/null || true
-sleep 8
+\$PUZZLECTL sim --run mixed_safe_and_sensitive --pace \$SIM_ARGS || true
+sleep 4
 
 # Scenario 7: Exec attempt (rejected)
-\$PUZZLECTL sim --run exec_attempt \$SIM_ARGS 2>/dev/null || true
+\$PUZZLECTL sim --run exec_attempt --pace \$SIM_ARGS || true
 
 # Idle until TUI exits
 sleep infinity
-" &
+" >/dev/null 2>&1 &
 SCENARIO_PID=$!
 
 # ─── Launch TUI (foreground) ────────────────────────────────────────────────
