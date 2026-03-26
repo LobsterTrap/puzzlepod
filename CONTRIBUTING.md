@@ -336,7 +336,7 @@ PuzzlePod uses [Goose](https://block.github.io/goose/) to automatically implemen
 ### How It Works
 
 1. A maintainer reviews the issue (clear goal + acceptance criteria) and adds a trigger label.
-2. The `agent-dispatch.yml` workflow starts Goose with Vertex AI (Claude Opus).
+2. The `agent-dispatch.yml` workflow starts Goose with Google AI (Gemini).
 3. Goose reads the issue, researches the codebase, implements the change, and verifies with `cargo check/test/fmt/clippy`.
 4. A **draft PR** is created linking `Closes #<issue>`.
 5. A human must review and approve the PR before merge.

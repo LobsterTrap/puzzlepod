@@ -28,38 +28,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  ENGINEER_INSTRUCTIONS: |
-    You are a Rust systems engineer working on PuzzlePod -- a userspace governance
-    daemon for AI agent workloads in containers on Linux.
-
-    Read AGENTS.md (or CLAUDE.md) at the repo root for full project context.
-
-    Conventions:
-    - Rust with tokio async runtime, zbus for D-Bus, clap for CLI, regorus for OPA/Rego
-    - All D-Bus methods must be idempotent
-    - CLI output must support --output=json
-    - Fail closed: if governance cannot be determined, rollback (never commit)
-    - No ML/heuristics in governance path -- deterministic OPA/Rego only
-    - Comment tags: H (hardening), M (mitigation), SC (seccomp), DC (design choice),
-      PM (Phase 2), L (lifecycle), A/B/C (audit fix)
-    - Use anyhow::Result for app errors, thiserror for library errors
-    - Use tracing for logging, not println
-    - Branch naming: <type>/<issue#>-<description>
-    - Conventional commits: <type>(<scope>): <description>
-
-    Testing:
-    - Unit tests in source files as #[cfg(test)] mod tests
-    - Integration tests in crates/<crate>/tests/*.rs
-    - CRITICAL: new test files in crates/puzzled/tests/ must be registered in BOTH
-      .github/workflows/ci.yml AND scripts/run_all_tests.sh
-    - Run: cargo check, cargo test, cargo fmt, cargo clippy --all-targets -- -D warnings
-
-    Safety:
-    - Never weaken sandbox enforcement or disable security controls
-    - unsafe code requires explicit justification + SAFETY comment
-    - Security-sensitive paths: crates/puzzled/src/sandbox/, policies/rules/,
-      selinux/, bpf/, crates/puzzled/src/dbus.rs
-
   GOOSE_ENGINEER_RECIPE: |
     version: "1.0.0"
     title: "Solve GitHub Issue"
@@ -285,6 +253,16 @@ jobs:
         run: |
           apt-get install -y build-essential pkg-config libssl-dev gettext
 
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/goose-home/.cargo/registry/index/
+            /tmp/goose-home/.cargo/registry/cache/
+            target/
+          key: agent-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: agent-${{ runner.os }}-
+
       - name: Get issue details
         id: issue
         env:
@@ -312,6 +290,10 @@ jobs:
           mkdir -p "$HOME/.local/share/goose/sessions"
           mkdir -p "$HOME/.config/goose"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          # Load engineer instructions from skill file (single source of truth)
+          ENGINEER_INSTRUCTIONS=$(cat skills/engineer.md)
+          export ENGINEER_INSTRUCTIONS
 
           MAX_ROUNDS=5
           FINAL_VERDICT="NONE"
@@ -342,7 +324,7 @@ jobs:
                 > /tmp/recipe.yaml
             fi
 
-            goose run --recipe /tmp/recipe.yaml || true
+            timeout 1200 goose run --recipe /tmp/recipe.yaml || echo "::warning::Goose engineer exited with code $?"
 
             # Check if engineer produced changes
             if [ -z "$(git status --porcelain)" ]; then
@@ -367,7 +349,7 @@ jobs:
               | envsubst '$ISSUE_NUMBER $ISSUE_TITLE $ROUND $PREVIOUS_REVIEW_CONTEXT' \
               > /tmp/reviewer-recipe.yaml
 
-            goose run --recipe /tmp/reviewer-recipe.yaml || true
+            timeout 1200 goose run --recipe /tmp/reviewer-recipe.yaml || echo "::warning::Goose reviewer exited with code $?"
 
             # Record this round's review
             if [ -f /tmp/review.md ]; then
@@ -390,8 +372,8 @@ jobs:
                 echo "::warning::Reviewer FAILED in round $ROUND"
               fi
             else
-              echo "::warning::Reviewer did not write verdict file in round $ROUND"
-              FINAL_VERDICT="PASS"
+              echo "::warning::Reviewer did not write verdict file in round $ROUND -- failing closed"
+              FINAL_VERDICT="FAIL"
               echo "::endgroup::"
               break
             fi

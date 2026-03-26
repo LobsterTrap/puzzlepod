@@ -12,7 +12,7 @@ crates/puzzlectl/ @lobstertrap
 # Shared types
 crates/puzzled-types/ @lobstertrap
 
-# Security-sensitive paths (require 2 reviewers)
+# Security-sensitive paths (see branch protection rules for reviewer requirements)
 selinux/ @lobstertrap
 policies/ @lobstertrap
 crates/puzzled/src/sandbox/ @lobstertrap

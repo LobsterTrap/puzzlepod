@@ -78,7 +78,7 @@ jobs:
   ci:
     name: Build & Test
     needs: [resolve-ref]
-    if: needs.resolve-ref.outputs.ref != ''
+    if: github.event_name != 'workflow_run' || needs.resolve-ref.outputs.ref != ''
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
