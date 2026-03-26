@@ -35,6 +35,10 @@ reject, rollback, diff), agent lifecycle (list, info, kill), profile
 management (list, show, validate, test), policy management (reload, test),
 and audit queries (list, export, verify).
 
+Includes an interactive terminal UI (puzzlectl tui) with a multi-pane
+dashboard, real-time D-Bus signal updates, governance review workflows,
+credential management, and audit log viewer.
+
 %prep
 %autosetup -n %{source_name}
 

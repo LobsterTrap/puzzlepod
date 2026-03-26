@@ -338,4 +338,9 @@ impl PuzzledClient {
             .await
             .context("EnsureBranch call failed")
     }
+
+    /// Access the leaked D-Bus connection for signal subscription.
+    pub fn connection(&self) -> &'static Connection {
+        self._connection
+    }
 }

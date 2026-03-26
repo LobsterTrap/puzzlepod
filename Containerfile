@@ -55,8 +55,10 @@ ENV CARGO_PROFILE_RELEASE_LTO=thin \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 RUN cargo fmt --all -- --check
 RUN cargo clippy --all --all-targets -- -D warnings # R6: Match CI parity with --all-targets
-# V8: Build with --features sim to ensure puzzle-sim-worker binary is compiled
-# (puzzle-sim-worker is a [[bin]] in puzzlectl; its main logic is gated behind #[cfg(feature = "sim")])
+# V8: Build puzzled and puzzlectl with default features (tui + sim).
+# Default features include: tui (interactive terminal UI with ratatui) and
+# sim (governance simulator + puzzle-sim-worker binary).
+# The --features sim is redundant with defaults but kept for explicitness.
 RUN cargo build --release -j2 -p puzzled -p puzzlectl --features sim
 
 # ---------------------------------------------------------------------------
