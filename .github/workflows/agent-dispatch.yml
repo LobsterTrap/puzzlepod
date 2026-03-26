@@ -28,7 +28,39 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GOOSE_RECIPE: |
+  ENGINEER_INSTRUCTIONS: |
+    You are a Rust systems engineer working on PuzzlePod -- a userspace governance
+    daemon for AI agent workloads in containers on Linux.
+
+    Read AGENTS.md (or CLAUDE.md) at the repo root for full project context.
+
+    Conventions:
+    - Rust with tokio async runtime, zbus for D-Bus, clap for CLI, regorus for OPA/Rego
+    - All D-Bus methods must be idempotent
+    - CLI output must support --output=json
+    - Fail closed: if governance cannot be determined, rollback (never commit)
+    - No ML/heuristics in governance path -- deterministic OPA/Rego only
+    - Comment tags: H (hardening), M (mitigation), SC (seccomp), DC (design choice),
+      PM (Phase 2), L (lifecycle), A/B/C (audit fix)
+    - Use anyhow::Result for app errors, thiserror for library errors
+    - Use tracing for logging, not println
+    - Branch naming: <type>/<issue#>-<description>
+    - Conventional commits: <type>(<scope>): <description>
+
+    Testing:
+    - Unit tests in source files as #[cfg(test)] mod tests
+    - Integration tests in crates/<crate>/tests/*.rs
+    - CRITICAL: new test files in crates/puzzled/tests/ must be registered in BOTH
+      .github/workflows/ci.yml AND scripts/run_all_tests.sh
+    - Run: cargo check, cargo test, cargo fmt, cargo clippy --all-targets -- -D warnings
+
+    Safety:
+    - Never weaken sandbox enforcement or disable security controls
+    - unsafe code requires explicit justification + SAFETY comment
+    - Security-sensitive paths: crates/puzzled/src/sandbox/, policies/rules/,
+      selinux/, bpf/, crates/puzzled/src/dbus.rs
+
+  GOOSE_ENGINEER_RECIPE: |
     version: "1.0.0"
     title: "Solve GitHub Issue"
     description: "Solve GitHub issue #${ISSUE_NUMBER}"
@@ -38,36 +70,7 @@ env:
         name: developer
 
     instructions: |
-      You are a Rust systems engineer working on PuzzlePod -- a userspace governance
-      daemon for AI agent workloads in containers on Linux.
-
-      Read AGENTS.md (or CLAUDE.md) at the repo root for full project context.
-
-      Conventions:
-      - Rust with tokio async runtime, zbus for D-Bus, clap for CLI, regorus for OPA/Rego
-      - All D-Bus methods must be idempotent
-      - CLI output must support --output=json
-      - Fail closed: if governance cannot be determined, rollback (never commit)
-      - No ML/heuristics in governance path -- deterministic OPA/Rego only
-      - Comment tags: H (hardening), M (mitigation), SC (seccomp), DC (design choice),
-        PM (Phase 2), L (lifecycle), A/B/C (audit fix)
-      - Use anyhow::Result for app errors, thiserror for library errors
-      - Use tracing for logging, not println
-      - Branch naming: <type>/<issue#>-<description>
-      - Conventional commits: <type>(<scope>): <description>
-
-      Testing:
-      - Unit tests in source files as #[cfg(test)] mod tests
-      - Integration tests in crates/<crate>/tests/*.rs
-      - CRITICAL: new test files in crates/puzzled/tests/ must be registered in BOTH
-        .github/workflows/ci.yml AND scripts/run_all_tests.sh
-      - Run: cargo check, cargo test, cargo fmt, cargo clippy --all-targets -- -D warnings
-
-      Safety:
-      - Never weaken sandbox enforcement or disable security controls
-      - unsafe code requires explicit justification + SAFETY comment
-      - Security-sensitive paths: crates/puzzled/src/sandbox/, policies/rules/,
-        selinux/, bpf/, crates/puzzled/src/dbus.rs
+      ${ENGINEER_INSTRUCTIONS}
 
     prompt: |
       Solve GitHub issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
@@ -111,11 +114,90 @@ env:
       - [ ] Confirm all requirements met, nothing extra added
       - [ ] Write a summary of changes to /tmp/issue_summary.txt
 
-      The Phase 6 "Reread" steps MUST appear in your updated TODO. Skipping them is failure.
+      The Phase 6 "Reread" steps MUST appear in your updated TODO.
+      Skipping them is failure.
 
       Only write /tmp/issue_summary.txt if the fix is complete and verified.
       Run git add for any new files required for the fix.
-      Do NOT commit. Leave changes in the working directory for the workflow to handle.
+      Do NOT commit. Leave changes in the working directory.
+
+  GOOSE_ENGINEER_FIX_RECIPE: |
+    version: "1.0.0"
+    title: "Fix Review Findings"
+    description: "Address reviewer findings for issue #${ISSUE_NUMBER}"
+
+    extensions:
+      - type: builtin
+        name: developer
+
+    instructions: |
+      ${ENGINEER_INSTRUCTIONS}
+
+    prompt: |
+      You previously implemented changes for issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+
+      The adversarial QE reviewer found issues. Read /tmp/review.md for findings.
+
+      Address ONLY the findings rated severity 3 or higher.
+      Do not add anything beyond what the reviewer asked for.
+      Do not refactor unrelated code. Fix exactly what was flagged.
+
+      After fixing:
+      - cargo check
+      - cargo test (affected crates)
+      - cargo fmt
+      - cargo clippy --all-targets -- -D warnings
+      - Update /tmp/issue_summary.txt with what you changed this round
+
+      Do NOT commit. Leave changes in the working directory.
+
+  GOOSE_REVIEWER_RECIPE: |
+    version: "1.0.0"
+    title: "Review Changes"
+    description: "Adversarial QE review for issue #${ISSUE_NUMBER}"
+
+    extensions:
+      - type: builtin
+        name: developer
+
+    instructions: |
+      You are an adversarial QE reviewer for PuzzlePod. Think like a rogue AI
+      agent escaping containment. Every code change is a potential attack surface.
+
+      You do NOT modify source code. You only read code, run checks, and write
+      review findings.
+
+      Attack dimensions (score each 0-5):
+      Standard: 1-Correctness 2-Edge cases 3-Error handling 4-Security
+      5-Concurrency 6-API contracts 7-Performance 8-Test quality
+      9-AI code smells
+      PuzzlePod-specific: 10-OverlayFS escape 11-Namespace breakout
+      12-Seccomp bypass 13-Landlock gaps 14-D-Bus escalation
+      15-WAL corruption 16-Branch conflicts 17-OPA bypass
+
+      Scoring: 0=N/A 1=no issues 2=minor 3=moderate 4=serious 5=critical
+
+    prompt: |
+      Review code changes for GitHub issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+
+      The diff is at /tmp/current-diff.txt
+      The issue is at /tmp/issue.json
+      This is review round ${ROUND}.
+      ${PREVIOUS_REVIEW_CONTEXT}
+
+      Steps:
+      1. Read the diff and the issue requirements
+      2. Read the actual source files to understand context beyond the diff
+      3. Evaluate each applicable attack dimension (score 0-5)
+      4. Write your structured review to /tmp/review.md:
+         - Dimension scores table
+         - Findings with: severity, file:line, attack scenario, remediation
+         - Verdict: PASS or FAIL
+      5. Write exactly "PASS" or "FAIL" to /tmp/review-verdict.txt
+         - FAIL only if any finding is severity 4 or 5 (serious/critical)
+         - PASS if all findings are severity 3 or below
+
+      Be thorough but fair. Do not FAIL for style preferences or minor issues.
 
 jobs:
   dispatch:
@@ -126,7 +208,7 @@ jobs:
        !contains(fromJSON('["agent:in-progress","agent:pr-created","agent:failed"]'),
                  github.event.label.name))
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     container:
       image: ghcr.io/block/goose:latest
@@ -214,14 +296,14 @@ jobs:
 
           echo "number=${ISSUE}" >> $GITHUB_OUTPUT
 
-          # SECURITY: Use random delimiter to prevent injection if title contains delimiter
+          # SECURITY: Use random delimiter to prevent injection
           DELIMITER="EOF_$(openssl rand -hex 8)"
           echo "title<<$DELIMITER" >> $GITHUB_OUTPUT
           jq -r '.title' /tmp/issue.json >> $GITHUB_OUTPUT
           echo "$DELIMITER" >> $GITHUB_OUTPUT
 
-      - name: Run Goose
-        id: goose
+      - name: Engineer-Reviewer debate loop
+        id: debate
         env:
           ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
           ISSUE_TITLE: ${{ steps.issue.outputs.title }}
@@ -231,30 +313,127 @@ jobs:
           mkdir -p "$HOME/.config/goose"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-          echo "$GOOSE_RECIPE" | envsubst '$ISSUE_NUMBER $ISSUE_TITLE $WORK_TYPE' > /tmp/recipe.yaml
+          MAX_ROUNDS=5
+          FINAL_VERDICT="NONE"
+          FINAL_ROUND=0
 
-          goose run --recipe /tmp/recipe.yaml
+          # Initialize review history
+          echo "" > /tmp/review-history.md
 
-          if [ -n "$(git status --porcelain)" ] && [ -f /tmp/issue_summary.txt ]; then
-            echo "has_changes=true" >> $GITHUB_OUTPUT
+          for ROUND in $(seq 1 $MAX_ROUNDS); do
+            echo "::group::Round ${ROUND}/${MAX_ROUNDS}"
+            FINAL_ROUND=$ROUND
+
+            # ---- Engineer phase ----
+            echo "=== Engineer phase (round $ROUND) ==="
+            PREVIOUS_REVIEW_CONTEXT=""
+            if [ "$ROUND" -gt 1 ] && [ -f /tmp/review.md ]; then
+              PREVIOUS_REVIEW_CONTEXT="Previous review findings are at /tmp/review.md"
+            fi
+            export PREVIOUS_REVIEW_CONTEXT ROUND
+
+            if [ "$ROUND" -eq 1 ]; then
+              echo "$GOOSE_ENGINEER_RECIPE" \
+                | envsubst '$ISSUE_NUMBER $ISSUE_TITLE $WORK_TYPE $ENGINEER_INSTRUCTIONS' \
+                > /tmp/recipe.yaml
+            else
+              echo "$GOOSE_ENGINEER_FIX_RECIPE" \
+                | envsubst '$ISSUE_NUMBER $ISSUE_TITLE $WORK_TYPE $ENGINEER_INSTRUCTIONS' \
+                > /tmp/recipe.yaml
+            fi
+
+            goose run --recipe /tmp/recipe.yaml || true
+
+            # Check if engineer produced changes
+            if [ -z "$(git status --porcelain)" ]; then
+              echo "::notice::Engineer produced no changes in round $ROUND"
+              if [ "$ROUND" -eq 1 ]; then
+                FINAL_VERDICT="NO_CHANGES"
+              fi
+              echo "::endgroup::"
+              break
+            fi
+
+            # Stage changes for the reviewer to see cumulative diff
+            git add -A
+
+            # ---- Reviewer phase ----
+            echo "=== Reviewer phase (round $ROUND) ==="
+            git diff --cached > /tmp/current-diff.txt
+
+            rm -f /tmp/review.md /tmp/review-verdict.txt
+
+            echo "$GOOSE_REVIEWER_RECIPE" \
+              | envsubst '$ISSUE_NUMBER $ISSUE_TITLE $ROUND $PREVIOUS_REVIEW_CONTEXT' \
+              > /tmp/reviewer-recipe.yaml
+
+            goose run --recipe /tmp/reviewer-recipe.yaml || true
+
+            # Record this round's review
+            if [ -f /tmp/review.md ]; then
+              echo -e "\n### Round ${ROUND} Review\n" >> /tmp/review-history.md
+              cat /tmp/review.md >> /tmp/review-history.md
+            fi
+
+            # Check verdict
+            if [ -f /tmp/review-verdict.txt ]; then
+              VERDICT=$(cat /tmp/review-verdict.txt | tr -d '[:space:]')
+              echo "Round $ROUND verdict: $VERDICT"
+
+              if [ "$VERDICT" = "PASS" ]; then
+                FINAL_VERDICT="PASS"
+                echo "::notice::Reviewer PASSED in round $ROUND"
+                echo "::endgroup::"
+                break
+              else
+                FINAL_VERDICT="FAIL"
+                echo "::warning::Reviewer FAILED in round $ROUND"
+              fi
+            else
+              echo "::warning::Reviewer did not write verdict file in round $ROUND"
+              FINAL_VERDICT="PASS"
+              echo "::endgroup::"
+              break
+            fi
+
+            echo "::endgroup::"
+          done
+
+          # ---- Set outputs ----
+          HAS_CHANGES="false"
+          if [ -n "$(git status --porcelain)" ] || [ -n "$(git diff --cached --name-only)" ]; then
+            HAS_CHANGES="true"
+          fi
+
+          echo "has_changes=${HAS_CHANGES}" >> $GITHUB_OUTPUT
+          echo "final_verdict=${FINAL_VERDICT}" >> $GITHUB_OUTPUT
+          echo "final_round=${FINAL_ROUND}" >> $GITHUB_OUTPUT
+
+          if [ -f /tmp/issue_summary.txt ]; then
             SUMMARY_DELIMITER="EOF_$(openssl rand -hex 8)"
             echo "summary<<$SUMMARY_DELIMITER" >> $GITHUB_OUTPUT
             cat /tmp/issue_summary.txt >> $GITHUB_OUTPUT
             echo "$SUMMARY_DELIMITER" >> $GITHUB_OUTPUT
-          else
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -f /tmp/review-history.md ]; then
+            HISTORY_DELIMITER="EOF_$(openssl rand -hex 8)"
+            echo "review_history<<$HISTORY_DELIMITER" >> $GITHUB_OUTPUT
+            cat /tmp/review-history.md >> $GITHUB_OUTPUT
+            echo "$HISTORY_DELIMITER" >> $GITHUB_OUTPUT
           fi
 
       - name: Block .github changes
-        if: steps.goose.outputs.has_changes == 'true'
+        if: steps.debate.outputs.has_changes == 'true'
         run: |
-          if git diff --name-only | grep -q "^\.github/"; then
-            echo "::warning::Goose modified .github/ files -- reverting those changes"
+          if git diff --cached --name-only | grep -q "^\.github/"; then
+            echo "::warning::Goose modified .github/ files -- reverting"
+            git reset HEAD -- .github/
             git checkout -- .github/
           fi
 
       - name: Create Pull Request
-        if: steps.goose.outputs.has_changes == 'true'
+        if: steps.debate.outputs.has_changes == 'true'
         id: pr
         uses: peter-evans/create-pull-request@v7
         with:
@@ -269,7 +448,13 @@ jobs:
             Closes #${{ steps.issue.outputs.number }}
 
             ## Summary
-            ${{ steps.goose.outputs.summary || 'See commits for details.' }}
+            ${{ steps.debate.outputs.summary || 'See commits for details.' }}
+
+            ## Review History
+
+            **Final verdict:** ${{ steps.debate.outputs.final_verdict }} (round ${{ steps.debate.outputs.final_round }})
+
+            ${{ steps.debate.outputs.review_history }}
 
             ---
             *Generated by Goose agent dispatch. Human review required before merge.*
@@ -277,12 +462,12 @@ jobs:
             Generated-by: Goose (Block) <noreply@block.xyz>
 
       - name: Save branch ref for CI
-        if: steps.goose.outputs.has_changes == 'true' && steps.pr.outputs.pull-request-url
+        if: steps.debate.outputs.has_changes == 'true' && steps.pr.outputs.pull-request-url
         run: |
           echo "goose/issue-${{ steps.issue.outputs.number }}" > /tmp/agent-branch.txt
 
       - name: Upload branch ref artifact
-        if: steps.goose.outputs.has_changes == 'true' && steps.pr.outputs.pull-request-url
+        if: steps.debate.outputs.has_changes == 'true' && steps.pr.outputs.pull-request-url
         uses: actions/upload-artifact@v4
         with:
           name: agent-branch
@@ -290,23 +475,39 @@ jobs:
           retention-days: 1
 
       - name: Report success
-        if: steps.goose.outputs.has_changes == 'true' && steps.pr.outputs.pull-request-url
+        if: steps.debate.outputs.has_changes == 'true' && steps.pr.outputs.pull-request-url
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE: ${{ steps.issue.outputs.number }}
           REPO: ${{ github.repository }}
           PR_URL: ${{ steps.pr.outputs.pull-request-url }}
+          VERDICT: ${{ steps.debate.outputs.final_verdict }}
+          ROUNDS: ${{ steps.debate.outputs.final_round }}
         run: |
+          LABEL="agent:pr-created"
+          if [ "$VERDICT" != "PASS" ]; then
+            LABEL="agent:needs-review"
+          fi
+
           gh issue edit "$ISSUE" --repo "$REPO" \
             --remove-label "agent:in-progress" \
-            --add-label "agent:pr-created"
-          gh issue comment "$ISSUE" --repo "$REPO" \
-            --body "Draft PR created: ${PR_URL}
+            --add-label "$LABEL"
 
-          Please review and merge if the changes look correct."
+          if [ "$VERDICT" = "PASS" ]; then
+            gh issue comment "$ISSUE" --repo "$REPO" \
+              --body "Draft PR created: ${PR_URL}
+
+          Reviewer passed after ${ROUNDS} round(s). Please review and merge."
+          else
+            gh issue comment "$ISSUE" --repo "$REPO" \
+              --body "Draft PR created: ${PR_URL}
+
+          Reviewer did not pass after ${ROUNDS} round(s). Unresolved findings are in the PR body.
+          Please review carefully before merging."
+          fi
 
       - name: Report no changes
-        if: steps.goose.outputs.has_changes != 'true'
+        if: steps.debate.outputs.has_changes != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE: ${{ steps.issue.outputs.number }}
@@ -317,10 +518,10 @@ jobs:
             --remove-label "agent:in-progress" \
             --add-label "agent:failed"
           gh issue comment "$ISSUE" --repo "$REPO" \
-            --body "Goose agent completed but produced no changes or did not confirm completion.
+            --body "Goose agent produced no changes or did not confirm completion.
           See [workflow run](${RUN_URL}) for details.
 
-          To retry, remove the \`agent:failed\` label and re-add the trigger label."
+          To retry, remove \`agent:failed\` and re-add the trigger label."
 
       - name: Report failure
         if: failure()
@@ -336,4 +537,4 @@ jobs:
           gh issue comment "$ISSUE" --repo "$REPO" \
             --body "Goose agent failed. See [workflow run](${RUN_URL}) for details.
 
-          To retry, remove the \`agent:failed\` label and re-add the trigger label." || true
+          To retry, remove \`agent:failed\` and re-add the trigger label." || true
