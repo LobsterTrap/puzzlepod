@@ -31,7 +31,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  CI_IMAGE: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
+  CI_IMAGE: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -80,28 +80,12 @@ jobs:
       always() &&
       (github.event_name != 'workflow_run' || needs.resolve-ref.outputs.ref != '')
     runs-on: ubuntu-latest
+    container:
+      image: ${{ vars.CI_IMAGE || 'ghcr.io/lobstertrap/puzzlepod/ci:fedora42' }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve-ref.outputs.ref }}
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config clang \
-            libssl-dev libdbus-1-dev libseccomp-dev libsystemd-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Install cargo-deny
-        run: |
-          DENY_VERSION=0.19.0
-          curl -sSfL "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY_VERSION}/cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-            | tar xz --strip-components=1 -C /usr/local/bin "cargo-deny-${DENY_VERSION}-x86_64-unknown-linux-musl/cargo-deny"
 
       - name: "Suite 0/5 — License Headers"
         run: |
@@ -161,21 +145,12 @@ jobs:
     needs: [resolve-ref, ci]
     if: always() && needs.ci.result == 'success'
     runs-on: ubuntu-latest
+    container:
+      image: ${{ vars.CI_IMAGE || 'ghcr.io/lobstertrap/puzzlepod/ci:fedora42' }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve-ref.outputs.ref }}
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config clang \
-            libssl-dev libdbus-1-dev libseccomp-dev libsystemd-dev \
-            dbus
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry and build
         uses: actions/cache@v4
@@ -191,14 +166,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # D-Bus daemon installed via system dependencies step above
-
-          # Create required directories (need sudo on ubuntu-latest)
-          sudo mkdir -p /run/dbus /var/lib/puzzled/branches/wal /run/puzzled /etc/puzzled/profiles /etc/puzzled/policies /etc/dbus-1/system.d
-          sudo chmod 777 /var/lib/puzzled/branches/wal /run/puzzled /etc/puzzled/profiles /etc/puzzled/policies
+          # Create required directories
+          mkdir -p /run/dbus /var/lib/puzzled/branches/wal /run/puzzled /etc/puzzled/profiles /etc/puzzled/policies /etc/dbus-1/system.d
 
           # Install D-Bus policy
-          sudo tee /etc/dbus-1/system.d/org.lobstertrap.PuzzlePod1.conf > /dev/null << 'DBUS'
+          cat > /etc/dbus-1/system.d/org.lobstertrap.PuzzlePod1.conf << 'DBUS'
           <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
            "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
           <busconfig>
@@ -216,9 +188,9 @@ jobs:
 
           # Start D-Bus system bus
           export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/run/dbus/system_bus_socket"
-          sudo dbus-daemon --config-file=/usr/share/dbus-1/system.conf --fork --print-pid --address="$DBUS_SYSTEM_BUS_ADDRESS" 2>&1 || {
+          dbus-daemon --config-file=/usr/share/dbus-1/system.conf --fork --print-pid --address="$DBUS_SYSTEM_BUS_ADDRESS" 2>&1 || {
             echo "dbus-daemon --system failed, trying manual start..."
-            sudo dbus-daemon --fork --print-pid --address="$DBUS_SYSTEM_BUS_ADDRESS" --auth=EXTERNAL 2>&1 || true
+            dbus-daemon --fork --print-pid --address="$DBUS_SYSTEM_BUS_ADDRESS" --auth=EXTERNAL 2>&1 || true
           }
           sleep 1
 
@@ -227,7 +199,7 @@ jobs:
           cp policies/rules/*.rego /etc/puzzled/policies/ 2>/dev/null || true
 
           # Write minimal puzzled config
-          sudo tee /etc/puzzled/puzzled.conf > /dev/null << 'CONF'
+          cat > /etc/puzzled/puzzled.conf << 'CONF'
           branch_root: /var/lib/puzzled/branches
           profiles_dir: /etc/puzzled/profiles
           policies_dir: /etc/puzzled/policies
@@ -257,35 +229,35 @@ jobs:
           echo "=== Building puzzled ==="
           cargo build -p puzzled
 
-          # Start puzzled in background (needs sudo for system bus)
+          # Start puzzled in background
           echo "=== Starting puzzled ==="
-          sudo RUST_LOG=puzzled=warn ./target/debug/puzzled &
+          RUST_LOG=puzzled=warn ./target/debug/puzzled &
           PUZZLED_PID=$!
 
           # Wait for D-Bus registration (up to 10 seconds)
           for i in $(seq 1 20); do
-            if sudo dbus-send --system --dest=org.lobstertrap.PuzzlePod1 --print-reply /org/lobstertrap/PuzzlePod1/Manager org.lobstertrap.PuzzlePod1.Manager.ListBranches >/dev/null 2>&1; then
+            if dbus-send --system --dest=org.lobstertrap.PuzzlePod1 --print-reply /org/lobstertrap/PuzzlePod1/Manager org.lobstertrap.PuzzlePod1.Manager.ListBranches >/dev/null 2>&1; then
               echo "puzzled registered on D-Bus (PID $PUZZLED_PID)"
               break
             fi
             sleep 0.5
           done
 
-          if ! sudo dbus-send --system --dest=org.lobstertrap.PuzzlePod1 --print-reply /org/lobstertrap/PuzzlePod1/Manager org.lobstertrap.PuzzlePod1.Manager.ListBranches >/dev/null 2>&1; then
+          if ! dbus-send --system --dest=org.lobstertrap.PuzzlePod1 --print-reply /org/lobstertrap/PuzzlePod1/Manager org.lobstertrap.PuzzlePod1.Manager.ListBranches >/dev/null 2>&1; then
             echo "ERROR: puzzled failed to register on D-Bus within 10s"
-            sudo kill $PUZZLED_PID 2>/dev/null || true
+            kill $PUZZLED_PID 2>/dev/null || true
             exit 1
           fi
 
           # Run live D-Bus integration tests
           echo "=== Suite — Live D-Bus Integration (26 tests) ==="
           set +e
-          sudo -E env "PATH=$PATH" cargo test -p puzzled --test live_dbus_integration -- --test-threads=1
+          cargo test -p puzzled --test live_dbus_integration -- --test-threads=1
           TEST_RESULT=$?
           set -e
 
           # Stop puzzled
-          sudo kill $PUZZLED_PID 2>/dev/null || true
+          kill $PUZZLED_PID 2>/dev/null || true
           wait $PUZZLED_PID 2>/dev/null || true
           echo "puzzled stopped"
 
@@ -301,7 +273,7 @@ jobs:
     runs-on: [self-hosted, privileged]
     continue-on-error: true
     container:
-      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
+      image: ${{ vars.CI_IMAGE || 'ghcr.io/lobstertrap/puzzlepod/ci:fedora42' }}
       options: --privileged
     steps:
       - uses: actions/checkout@v4
@@ -344,7 +316,7 @@ jobs:
     needs: [ci]
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
+      image: ${{ vars.CI_IMAGE || 'ghcr.io/lobstertrap/puzzlepod/ci:fedora42' }}
     strategy:
       fail-fast: false
       matrix:
@@ -389,7 +361,7 @@ jobs:
     if: always() && needs.ci.result == 'success' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
+      image: ${{ vars.CI_IMAGE || 'ghcr.io/lobstertrap/puzzlepod/ci:fedora42' }}
     steps:
       - uses: actions/checkout@v4
         with:

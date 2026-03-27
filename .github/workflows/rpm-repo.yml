@@ -31,7 +31,7 @@ jobs:
     name: Build Source & SRPMs
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
+      image: ${{ vars.CI_IMAGE || 'ghcr.io/lobstertrap/puzzlepod/ci:fedora42' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -58,7 +58,7 @@ jobs:
     needs: build-source
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
+      image: ${{ vars.CI_IMAGE || 'ghcr.io/lobstertrap/puzzlepod/ci:fedora42' }}
     strategy:
       fail-fast: false
       matrix:
