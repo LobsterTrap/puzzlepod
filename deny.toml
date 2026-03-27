@@ -15,6 +15,11 @@ ignore = [
     # No security impact; it's a thin wrapper around rustls-pki-types internals.
     # TODO: Migrate to rustls-pki-types PemObject trait when tokio-rustls updates.
     "RUSTSEC-2025-0134",
+    # lru 0.12.5 unsoundness (RUSTSEC-2026-0002) — transitive dep of ratatui v0.29.
+    # Fix requires ratatui >= 0.30.0 which is a breaking update.
+    # No practical impact: ratatui's LRU cache is used internally for layout caching,
+    # not exposed to untrusted input.
+    "RUSTSEC-2026-0002",
 ]
 
 [licenses]
