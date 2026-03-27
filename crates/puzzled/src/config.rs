@@ -1566,6 +1566,10 @@ impl DaemonConfig {
                 default_rules_path: puzzled_config.join("dlp").join("rules.yaml"),
                 ..Default::default()
             },
+            credential_proxy: CredentialProxyDaemonConfig {
+                port_range: "18500-18999".to_string(),
+                ..Default::default()
+            },
             log_target: "stderr".to_string(),
             ..Default::default()
         };
@@ -2318,7 +2322,7 @@ max_branches: 0
         let conf_path = puzzled_dir.join("puzzled.conf");
         std::fs::write(
             &conf_path,
-            "max_branches: 7\nbus_type: session\nfs_type: ext4\n",
+            "max_branches: 7\nbus_type: session\nfs_type: ext4\ncredential_proxy:\n  port_range: \"18500-18999\"\n",
         )
         .unwrap();
 
