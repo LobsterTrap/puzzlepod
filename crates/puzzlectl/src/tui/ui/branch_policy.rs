@@ -62,7 +62,10 @@ fn format_policy_text<'a>(text: &str, theme: &Theme) -> Vec<Line<'a>> {
             _ => (" REVIEW ", theme.status_warn),
         };
         lines.push(Line::from(vec![
-            Span::styled("Decision: ".to_string(), Style::default().fg(theme.text_dim)),
+            Span::styled(
+                "Decision: ".to_string(),
+                Style::default().fg(theme.text_dim),
+            ),
             Span::styled(
                 badge.to_string(),
                 Style::default()
@@ -88,7 +91,10 @@ fn format_policy_text<'a>(text: &str, theme: &Theme) -> Vec<Line<'a>> {
             for v in violations {
                 let rule = v.get("rule").and_then(|r| r.as_str()).unwrap_or("unknown");
                 let msg = v.get("message").and_then(|m| m.as_str()).unwrap_or("");
-                let severity = v.get("severity").and_then(|s| s.as_str()).unwrap_or("Error");
+                let severity = v
+                    .get("severity")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("Error");
                 let sev_color = theme.severity_color(severity);
 
                 lines.push(Line::from(vec![

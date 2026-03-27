@@ -5,7 +5,9 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{
+        Block, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+    },
     Frame,
 };
 
@@ -18,12 +20,16 @@ pub fn draw_audit_log(f: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
 
     // Filter bar with editable fields
     let branch_style = if app.audit_log_filter_focus == 0 {
-        Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(theme.accent)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme.text_dim)
     };
     let type_style = if app.audit_log_filter_focus == 1 {
-        Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(theme.accent)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme.text_dim)
     };
@@ -114,32 +120,33 @@ fn format_audit_event<'a>(evt: &serde_json::Value, theme: &Theme) -> ListItem<'a
             .get("event_type")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        let timestamp = evt
-            .get("timestamp")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let timestamp = evt.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
         let branch_id = event_obj
             .get("branch_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let details = event_obj.get("details").cloned().unwrap_or_default();
-        (event_type.to_string(), timestamp.to_string(), branch_id.to_string(), details)
+        (
+            event_type.to_string(),
+            timestamp.to_string(),
+            branch_id.to_string(),
+            details,
+        )
     } else {
         // Flat: { event_type, timestamp, branch_id, details }
         let event_type = evt
             .get("event_type")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        let timestamp = evt
-            .get("timestamp")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let branch_id = evt
-            .get("branch_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let timestamp = evt.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+        let branch_id = evt.get("branch_id").and_then(|v| v.as_str()).unwrap_or("");
         let details = evt.get("details").cloned().unwrap_or_default();
-        (event_type.to_string(), timestamp.to_string(), branch_id.to_string(), details)
+        (
+            event_type.to_string(),
+            timestamp.to_string(),
+            branch_id.to_string(),
+            details,
+        )
     };
 
     let type_color = match event_type.as_str() {
@@ -168,10 +175,7 @@ fn format_audit_event<'a>(evt: &serde_json::Value, theme: &Theme) -> ListItem<'a
     let detail_summary = summarize_details(&event_type, &details);
 
     ListItem::new(Line::from(vec![
-        Span::styled(
-            format!("{} ", short_ts),
-            Style::default().fg(theme.muted),
-        ),
+        Span::styled(format!("{} ", short_ts), Style::default().fg(theme.muted)),
         Span::styled(
             format!("{:<22} ", event_type),
             Style::default().fg(type_color),
@@ -187,7 +191,10 @@ fn format_audit_event<'a>(evt: &serde_json::Value, theme: &Theme) -> ListItem<'a
 fn summarize_details(event_type: &str, details: &serde_json::Value) -> String {
     match event_type {
         "branch_created" => {
-            let profile = details.get("profile").and_then(|v| v.as_str()).unwrap_or("");
+            let profile = details
+                .get("profile")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let uid = details.get("uid").and_then(|v| v.as_u64()).unwrap_or(0);
             format!("profile={} uid={}", profile, uid)
         }
@@ -196,36 +203,33 @@ fn summarize_details(event_type: &str, details: &serde_json::Value) -> String {
             let bytes = details.get("bytes").and_then(|v| v.as_u64()).unwrap_or(0);
             format!("{} files, {} bytes", files, bytes)
         }
-        "branch_rolled_back" => {
-            details
-                .get("reason")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        }
+        "branch_rolled_back" => details
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         "policy_violation" => {
             let rule = details.get("rule").and_then(|v| v.as_str()).unwrap_or("");
-            let msg = details.get("message").and_then(|v| v.as_str()).unwrap_or("");
+            let msg = details
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if !msg.is_empty() {
                 format!("{}: {}", rule, msg)
             } else {
                 rule.to_string()
             }
         }
-        "commit_rejected" => {
-            details
-                .get("reason")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        }
-        "profile_loaded" => {
-            details
-                .get("profile")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        }
+        "commit_rejected" => details
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "profile_loaded" => details
+            .get("profile")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         _ => {
             // Generic: show first key=value pair
             if let Some(obj) = details.as_object() {

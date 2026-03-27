@@ -5,7 +5,9 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::Style,
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{
+        Block, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+    },
     Frame,
 };
 
@@ -17,7 +19,14 @@ pub fn draw_logs(f: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
         .split(area);
 
     // Filter bar
-    let filter_text = format!(" Filter: {} ", if app.audit_events.is_empty() { "(no events)" } else { "" });
+    let filter_text = format!(
+        " Filter: {} ",
+        if app.audit_events.is_empty() {
+            "(no events)"
+        } else {
+            ""
+        }
+    );
     let filter = Paragraph::new(filter_text)
         .style(Style::default().fg(theme.text_dim))
         .block(
@@ -50,18 +59,9 @@ pub fn draw_logs(f: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
                 .get("event_type")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let timestamp = evt
-                .get("timestamp")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let branch_id = evt
-                .get("branch_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let details = evt
-                .get("details")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let timestamp = evt.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+            let branch_id = evt.get("branch_id").and_then(|v| v.as_str()).unwrap_or("");
+            let details = evt.get("details").and_then(|v| v.as_str()).unwrap_or("");
 
             let type_color = match event_type {
                 "policy_violation" | "dlp_violation" => theme.status_err,
@@ -87,7 +87,10 @@ pub fn draw_logs(f: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
                     format!("{:<20} ", event_type),
                     Style::default().fg(type_color),
                 ),
-                Span::styled(format!("{} ", short_branch), Style::default().fg(theme.text_dim)),
+                Span::styled(
+                    format!("{} ", short_branch),
+                    Style::default().fg(theme.text_dim),
+                ),
                 Span::styled(details, Style::default().fg(theme.text)),
             ]))
         })
@@ -109,10 +112,6 @@ pub fn draw_logs(f: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
         let mut scrollbar_state = ScrollbarState::new(total).position(app.audit_scroll as usize);
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .style(Style::default().fg(theme.accent));
-        f.render_stateful_widget(
-            scrollbar,
-            chunks[1],
-            &mut scrollbar_state,
-        );
+        f.render_stateful_widget(scrollbar, chunks[1], &mut scrollbar_state);
     }
 }

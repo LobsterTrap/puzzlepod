@@ -2,7 +2,7 @@
 //! Branch detail view: metadata sidebar + tabbed content.
 
 use ratatui::{
-    layout::{Constraint, Layout, Direction, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Tabs},
@@ -81,18 +81,24 @@ pub fn draw_branch_detail(f: &mut Frame, app: &mut App, area: Rect, theme: &Them
 fn draw_metadata_sidebar(f: &mut Frame, app: &App, branch_id: &str, area: Rect, theme: &Theme) {
     let branch = app.branches.iter().find(|b| b.id.0 == branch_id);
 
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled("ID: ", Style::default().fg(theme.text_dim)),
-            Span::styled(branch_id, Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-        ]),
-    ];
+    let mut lines = vec![Line::from(vec![
+        Span::styled("ID: ", Style::default().fg(theme.text_dim)),
+        Span::styled(
+            branch_id,
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ),
+    ])];
 
     if let Some(b) = branch {
         let state_color = theme.branch_state_color(&b.state);
         lines.push(Line::from(vec![
             Span::styled("State: ", Style::default().fg(theme.text_dim)),
-            Span::styled(&b.state, Style::default().fg(state_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                &b.state,
+                Style::default()
+                    .fg(state_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]));
         lines.push(Line::from(vec![
             Span::styled("Profile: ", Style::default().fg(theme.text_dim)),
@@ -135,7 +141,19 @@ fn draw_metadata_sidebar(f: &mut Frame, app: &App, branch_id: &str, area: Rect, 
         if let Some(obj) = info.as_object() {
             for (key, val) in obj {
                 // Skip fields already shown above
-                if matches!(key.as_str(), "id" | "profile" | "state" | "pid" | "uid" | "created_at" | "expires_at" | "selinux_context" | "base_path" | "upper_dir" | "work_dir") {
+                if matches!(
+                    key.as_str(),
+                    "id" | "profile"
+                        | "state"
+                        | "pid"
+                        | "uid"
+                        | "created_at"
+                        | "expires_at"
+                        | "selinux_context"
+                        | "base_path"
+                        | "upper_dir"
+                        | "work_dir"
+                ) {
                     continue;
                 }
                 let val_str = match val {

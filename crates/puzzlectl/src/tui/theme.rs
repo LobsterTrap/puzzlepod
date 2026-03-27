@@ -38,7 +38,7 @@ impl Theme {
     /// Dark cyberpunk theme (default).
     pub fn dark() -> Self {
         Self {
-            accent: Color::Rgb(187, 134, 252),        // #BB86FC
+            accent: Color::Rgb(187, 134, 252),         // #BB86FC
             accent_bright: Color::Rgb(207, 110, 255),  // #CF6EFF
             bg_dark: Color::Rgb(26, 0, 51),            // #1A0033
             border: Color::Rgb(61, 31, 110),           // #3D1F6E
@@ -58,19 +58,19 @@ impl Theme {
     /// Light cyberpunk theme (inverted backgrounds).
     pub fn light() -> Self {
         Self {
-            accent: Color::Rgb(128, 60, 200),          // darker purple for contrast
-            accent_bright: Color::Rgb(156, 39, 220),   // #9C27DC
-            bg_dark: Color::Rgb(245, 240, 255),        // light lavender bg
-            border: Color::Rgb(180, 160, 210),         // light purple border
-            border_focused: Color::Rgb(128, 60, 200),  // darker purple
-            text: Color::Rgb(30, 10, 50),              // near-black purple
-            text_dim: Color::Rgb(100, 80, 140),        // medium purple
-            muted: Color::Rgb(140, 120, 170),          // muted purple
-            highlight_bg: Color::Rgb(220, 200, 245),   // soft lavender
+            accent: Color::Rgb(128, 60, 200), // darker purple for contrast
+            accent_bright: Color::Rgb(156, 39, 220), // #9C27DC
+            bg_dark: Color::Rgb(245, 240, 255), // light lavender bg
+            border: Color::Rgb(180, 160, 210), // light purple border
+            border_focused: Color::Rgb(128, 60, 200), // darker purple
+            text: Color::Rgb(30, 10, 50),     // near-black purple
+            text_dim: Color::Rgb(100, 80, 140), // medium purple
+            muted: Color::Rgb(140, 120, 170), // muted purple
+            highlight_bg: Color::Rgb(220, 200, 245), // soft lavender
             table_header_bg: Color::Rgb(230, 215, 250), // pale lavender
-            status_ok: Color::Rgb(0, 150, 136),        // darker teal
-            status_warn: Color::Rgb(230, 140, 0),      // darker amber
-            status_err: Color::Rgb(180, 60, 80),       // darker rose
+            status_ok: Color::Rgb(0, 150, 136), // darker teal
+            status_warn: Color::Rgb(230, 140, 0), // darker amber
+            status_err: Color::Rgb(180, 60, 80), // darker rose
             mode: ThemeMode::Light,
         }
     }
@@ -201,11 +201,31 @@ mod tests {
     fn test_branch_state_colors_all_variants() {
         let theme = Theme::dark();
         let states = [
-            "active", "Active", "frozen", "Frozen", "committing", "Committing",
-            "committed", "Committed", "rolled_back", "RolledBack", "failed", "Failed",
-            "governance_review", "GovernanceReview", "terminated", "Terminated",
-            "degraded", "Degraded", "creating", "Creating", "ready", "Ready",
-            "exited", "Exited", "unknown",
+            "active",
+            "Active",
+            "frozen",
+            "Frozen",
+            "committing",
+            "Committing",
+            "committed",
+            "Committed",
+            "rolled_back",
+            "RolledBack",
+            "failed",
+            "Failed",
+            "governance_review",
+            "GovernanceReview",
+            "terminated",
+            "Terminated",
+            "degraded",
+            "Degraded",
+            "creating",
+            "Creating",
+            "ready",
+            "Ready",
+            "exited",
+            "Exited",
+            "unknown",
         ];
         for state in states {
             let _ = theme.branch_state_color(state);

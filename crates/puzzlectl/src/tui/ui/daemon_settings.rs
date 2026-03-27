@@ -49,7 +49,11 @@ pub fn draw_daemon_settings(f: &mut Frame, app: &App, area: Rect, theme: &Theme,
         Line::from(vec![
             Span::styled(" Connected: ", Style::default().fg(theme.text_dim)),
             Span::styled(
-                if app.daemon_status.connected { "Yes" } else { "No" },
+                if app.daemon_status.connected {
+                    "Yes"
+                } else {
+                    "No"
+                },
                 Style::default().fg(if app.daemon_status.connected {
                     theme.status_ok
                 } else {
@@ -67,7 +71,11 @@ pub fn draw_daemon_settings(f: &mut Frame, app: &App, area: Rect, theme: &Theme,
         Line::from(vec![
             Span::styled(" Policy Loaded: ", Style::default().fg(theme.text_dim)),
             Span::styled(
-                if app.daemon_status.policy_loaded { "Yes" } else { "No" },
+                if app.daemon_status.policy_loaded {
+                    "Yes"
+                } else {
+                    "No"
+                },
                 Style::default().fg(if app.daemon_status.policy_loaded {
                     theme.status_ok
                 } else {

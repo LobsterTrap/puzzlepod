@@ -37,11 +37,22 @@ pub fn draw_branches_table(f: &mut Frame, app: &mut App, area: Rect, theme: &The
             };
 
             let state_color = theme.branch_state_color(&b.state);
-            let pid_str = b.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string());
-            let time_str = b.created_at.as_deref().map(|ts| {
-                // Extract HH:MM:SS from ISO timestamp like "2026-03-26T19:14:18.123Z"
-                if ts.len() >= 19 { &ts[11..19] } else { ts }
-            }).unwrap_or("-");
+            let pid_str = b
+                .pid
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            let time_str = b
+                .created_at
+                .as_deref()
+                .map(|ts| {
+                    // Extract HH:MM:SS from ISO timestamp like "2026-03-26T19:14:18.123Z"
+                    if ts.len() >= 19 {
+                        &ts[11..19]
+                    } else {
+                        ts
+                    }
+                })
+                .unwrap_or("-");
 
             Row::new(vec![
                 Cell::from(format!(" {}", short_id)).style(Style::default().fg(theme.text)),
@@ -67,8 +78,9 @@ pub fn draw_branches_table(f: &mut Frame, app: &mut App, area: Rect, theme: &The
 
     let table = if app.branches.is_empty() {
         // Show empty state message
-        let empty_row = Row::new(vec![Cell::from(empty_msg)
-            .style(Style::default().fg(theme.muted))]);
+        let empty_row = Row::new(vec![
+            Cell::from(empty_msg).style(Style::default().fg(theme.muted))
+        ]);
         Table::new(vec![empty_row], [Constraint::Percentage(100)])
             .block(block)
             .row_highlight_style(theme.highlight_style())

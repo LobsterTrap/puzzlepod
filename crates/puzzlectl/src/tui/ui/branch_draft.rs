@@ -35,18 +35,9 @@ pub fn draw_governance_review(f: &mut Frame, app: &mut App, area: Rect, theme: &
                 .get("kind")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown");
-            let path = change
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let size = change
-                .get("size")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let old_size = change
-                .get("old_size")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let path = change.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let size = change.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+            let old_size = change.get("old_size").and_then(|v| v.as_u64()).unwrap_or(0);
 
             let kind_color = theme.change_kind_color(kind);
 
@@ -81,14 +72,9 @@ pub fn draw_governance_review(f: &mut Frame, app: &mut App, area: Rect, theme: &
             ListItem::new(Line::from(vec![
                 Span::styled(
                     format!(" {} ", kind_symbol),
-                    Style::default()
-                        .fg(kind_color)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(kind_color).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    format!("{:<12} ", kind),
-                    Style::default().fg(kind_color),
-                ),
+                Span::styled(format!("{:<12} ", kind), Style::default().fg(kind_color)),
                 Span::styled(path, Style::default().fg(theme.text)),
                 Span::styled(
                     format!("  ({} bytes{})", size_delta, mode_info),

@@ -119,7 +119,9 @@ impl FormField {
     /// Get the effective value (selected option or text input).
     pub fn effective_value(&self) -> &str {
         if let Some(opts) = &self.options {
-            opts.get(self.selected_option).map(|s| s.as_str()).unwrap_or("")
+            opts.get(self.selected_option)
+                .map(|s| s.as_str())
+                .unwrap_or("")
         } else {
             &self.value
         }
@@ -549,8 +551,7 @@ mod tests {
 
     #[test]
     fn test_branch_info_deserialize() {
-        let json =
-            r#"{"id":"abc123","profile":"standard","state":"active","pid":42,"uid":1000}"#;
+        let json = r#"{"id":"abc123","profile":"standard","state":"active","pid":42,"uid":1000}"#;
         let info: BranchInfo = serde_json::from_str(json).unwrap();
         assert_eq!(info.id.0, "abc123");
         assert_eq!(info.profile, "standard");

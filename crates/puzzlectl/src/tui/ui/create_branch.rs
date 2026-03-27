@@ -47,17 +47,16 @@ pub fn draw_create_branch(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
 
         let display_value = if let Some(ref opts) = field.options {
             // Dropdown: show selected option
-            opts.get(field.selected_option)
-                .cloned()
-                .unwrap_or_default()
+            opts.get(field.selected_option).cloned().unwrap_or_default()
         } else {
             let cursor = if focused { "_" } else { "" };
             format!("{}{}", field.value, cursor)
         };
 
-        let field_widget = Paragraph::new(Line::from(vec![
-            Span::styled(&display_value, Style::default().fg(theme.text)),
-        ]))
+        let field_widget = Paragraph::new(Line::from(vec![Span::styled(
+            &display_value,
+            Style::default().fg(theme.text),
+        )]))
         .block(
             Block::default()
                 .title(format!(" {} ", field.label))
@@ -77,11 +76,26 @@ pub fn draw_create_branch(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
 
     // Submit hint
     let hint = Paragraph::new(Line::from(vec![
-        Span::styled(" [Enter] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " [Enter] ",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled("Submit  ", Style::default().fg(theme.text_dim)),
-        Span::styled("[Esc] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[Esc] ",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled("Cancel  ", Style::default().fg(theme.text_dim)),
-        Span::styled("[Tab] ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[Tab] ",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled("Next field", Style::default().fg(theme.text_dim)),
     ]))
     .alignment(Alignment::Center);

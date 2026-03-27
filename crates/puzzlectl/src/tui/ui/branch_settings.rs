@@ -13,9 +13,7 @@ use crate::tui::{app::App, theme::Theme};
 
 pub fn draw_settings(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let branch = match &app.screen {
-        crate::tui::app::Screen::BranchDetail(id) => {
-            app.branches.iter().find(|b| b.id.0 == *id)
-        }
+        crate::tui::app::Screen::BranchDetail(id) => app.branches.iter().find(|b| b.id.0 == *id),
         _ => None,
     };
 
@@ -36,7 +34,9 @@ pub fn draw_settings(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
                 let val_str = match val {
                     serde_json::Value::String(s) => s.clone(),
                     serde_json::Value::Null => continue,
-                    other => serde_json::to_string_pretty(other).unwrap_or_else(|_| other.to_string()),
+                    other => {
+                        serde_json::to_string_pretty(other).unwrap_or_else(|_| other.to_string())
+                    }
                 };
                 lines.push(Line::from(vec![
                     Span::styled(format!("{}: ", key), Style::default().fg(theme.text_dim)),

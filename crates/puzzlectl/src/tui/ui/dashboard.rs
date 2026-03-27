@@ -16,9 +16,9 @@ use super::{branches, credentials, daemon_settings, daemon_status};
 pub fn draw_dashboard(f: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
     let chunks = Layout::default()
         .constraints([
-            Constraint::Length(3),     // Daemon status
+            Constraint::Length(3),      // Daemon status
             Constraint::Percentage(30), // Tab content
-            Constraint::Min(8),        // Branches table
+            Constraint::Min(8),         // Branches table
         ])
         .split(area);
 

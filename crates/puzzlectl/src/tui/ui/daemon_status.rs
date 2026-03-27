@@ -39,7 +39,9 @@ pub fn draw_daemon_status(f: &mut Frame, app: &App, area: Rect, theme: &Theme, f
         Span::styled("Health: ", Style::default().fg(theme.text_dim)),
         Span::styled(
             health_text,
-            Style::default().fg(health_color).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(health_color)
+                .add_modifier(Modifier::BOLD),
         ),
     ]);
 

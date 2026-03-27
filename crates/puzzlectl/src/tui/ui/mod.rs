@@ -34,7 +34,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .constraints([
             Constraint::Length(1), // title bar
-            Constraint::Min(6),   // main content
+            Constraint::Min(6),    // main content
             Constraint::Length(1), // nav bar
             Constraint::Length(1), // status bar
         ])
@@ -146,16 +146,16 @@ fn draw_nav_bar(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 }
 
 fn draw_status_bar(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
-    let style = if app.status_message.contains("failed") || app.status_message.contains("Failed") || app.status_message.contains("error") {
+    let style = if app.status_message.contains("failed")
+        || app.status_message.contains("Failed")
+        || app.status_message.contains("error")
+    {
         Style::default().fg(theme.status_err)
     } else {
         Style::default().fg(theme.status_ok)
     };
 
-    let paragraph = Paragraph::new(Span::styled(
-        format!(" {}", app.status_message),
-        style,
-    ));
+    let paragraph = Paragraph::new(Span::styled(format!(" {}", app.status_message), style));
     f.render_widget(paragraph, area);
 }
 
@@ -206,7 +206,11 @@ fn draw_confirm_dialog(f: &mut Frame, area: Rect, dialog: &ConfirmDialog, theme:
 }
 
 fn draw_notifications(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
-    let active: Vec<_> = app.notifications.iter().filter(|n| !n.is_expired()).collect();
+    let active: Vec<_> = app
+        .notifications
+        .iter()
+        .filter(|n| !n.is_expired())
+        .collect();
     if active.is_empty() {
         return;
     }
@@ -250,11 +254,7 @@ fn keybinding_hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("q", "quit"),
         ],
         Screen::BranchDetail(_) => {
-            let mut hints = vec![
-                ("Esc", "back"),
-                ("h/l", "tab"),
-                ("j/k", "scroll"),
-            ];
+            let mut hints = vec![("Esc", "back"), ("h/l", "tab"), ("j/k", "scroll")];
             // Check if branch is in GovernanceReview
             if let Some(b) = app.selected_branch() {
                 if b.state == "GovernanceReview" || b.state == "governance_review" {

@@ -190,11 +190,7 @@ fn handle_splash_key(app: &mut App, _key: KeyEvent) {
     app.screen = Screen::Dashboard;
 }
 
-async fn handle_dashboard_key(
-    app: &mut App,
-    key: KeyEvent,
-    client: &Option<PuzzledClient>,
-) {
+async fn handle_dashboard_key(app: &mut App, key: KeyEvent, client: &Option<PuzzledClient>) {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
             app.should_quit = true;
@@ -237,12 +233,18 @@ async fn handle_dashboard_key(
                         if let Some(c) = client {
                             let filter = serde_json::json!({"branch_id": id}).to_string();
                             if let Ok(json) = c.query_audit_events(&filter).await {
-                                if let Ok(events) = serde_json::from_str::<Vec<serde_json::Value>>(&json) {
+                                if let Ok(events) =
+                                    serde_json::from_str::<Vec<serde_json::Value>>(&json)
+                                {
                                     app.audit_events = events;
                                 }
                             }
                         }
-                        app.status_message = format!("Log: {} ({} events)", &id[..id.len().min(8)], app.audit_events.len());
+                        app.status_message = format!(
+                            "Log: {} ({} events)",
+                            &id[..id.len().min(8)],
+                            app.audit_events.len()
+                        );
                     } else {
                         // Live mode: load from daemon
                         if let Some(c) = client {
@@ -320,11 +322,7 @@ async fn handle_dashboard_key(
     }
 }
 
-async fn handle_detail_key(
-    app: &mut App,
-    key: KeyEvent,
-    client: &Option<PuzzledClient>,
-) {
+async fn handle_detail_key(app: &mut App, key: KeyEvent, client: &Option<PuzzledClient>) {
     match key.code {
         KeyCode::Esc => {
             app.screen = Screen::Dashboard;
@@ -368,11 +366,8 @@ async fn handle_detail_key(
                 if let Some(c) = client {
                     match c.approve_branch(&id).await {
                         Ok(result) => {
-                            app.status_message = format!(
-                                "Branch {} approved: {}",
-                                &id[..id.len().min(8)],
-                                result
-                            );
+                            app.status_message =
+                                format!("Branch {} approved: {}", &id[..id.len().min(8)], result);
                             app.notify(
                                 format!("Branch {} approved", &id[..id.len().min(8)]),
                                 NotificationLevel::Info,
@@ -435,11 +430,7 @@ async fn handle_detail_key(
     }
 }
 
-async fn handle_create_branch_key(
-    app: &mut App,
-    key: KeyEvent,
-    client: &Option<PuzzledClient>,
-) {
+async fn handle_create_branch_key(app: &mut App, key: KeyEvent, client: &Option<PuzzledClient>) {
     match key.code {
         KeyCode::Esc => {
             app.screen = Screen::Dashboard;
@@ -475,7 +466,8 @@ async fn handle_create_branch_key(
 
                 match c.create_branch(&profile, bp, &cmd_json).await {
                     Ok(result) => {
-                        app.status_message = format!("Branch created: {}", &result[..result.len().min(40)]);
+                        app.status_message =
+                            format!("Branch created: {}", &result[..result.len().min(40)]);
                         app.notify("Branch created".to_string(), NotificationLevel::Info);
                         refresh_data(app, c).await;
                     }
@@ -542,7 +534,9 @@ async fn handle_create_credential_key(
         }
         KeyCode::Enter => {
             let name = app.create_credential_fields[0].value.clone();
-            let cred_type = app.create_credential_fields[1].effective_value().to_string();
+            let cred_type = app.create_credential_fields[1]
+                .effective_value()
+                .to_string();
             let value_source = app.create_credential_fields[2].value.clone();
             let config_json = app.create_credential_fields[3].value.clone();
 
@@ -553,7 +547,10 @@ async fn handle_create_credential_key(
                     &config_json
                 };
 
-                match c.store_credential(&name, &cred_type, &value_source, cfg).await {
+                match c
+                    .store_credential(&name, &cred_type, &value_source, cfg)
+                    .await
+                {
                     Ok(_) => {
                         app.status_message = format!("Credential '{}' stored", name);
                         app.notify(
@@ -615,11 +612,7 @@ async fn handle_create_credential_key(
     }
 }
 
-async fn handle_audit_log_key(
-    app: &mut App,
-    key: KeyEvent,
-    client: &Option<PuzzledClient>,
-) {
+async fn handle_audit_log_key(app: &mut App, key: KeyEvent, client: &Option<PuzzledClient>) {
     match key.code {
         KeyCode::Esc => {
             app.screen = Screen::Dashboard;
@@ -716,14 +709,8 @@ fn reconstruct_branches(events: &[serde_json::Value]) -> Vec<BranchInfo> {
             let ts = evt.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
             (et, bid, d, ts)
         } else {
-            let et = evt
-                .get("event_type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let bid = evt
-                .get("branch_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let et = evt.get("event_type").and_then(|v| v.as_str()).unwrap_or("");
+            let bid = evt.get("branch_id").and_then(|v| v.as_str()).unwrap_or("");
             let d = evt.get("details");
             let ts = evt.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
             (et, bid, d, ts)
@@ -733,12 +720,14 @@ fn reconstruct_branches(events: &[serde_json::Value]) -> Vec<BranchInfo> {
             continue;
         }
 
-        let entry = branches.entry(branch_id.to_string()).or_insert(BranchAccum {
-            profile: String::new(),
-            state: "Unknown".to_string(),
-            uid: 0,
-            created_at: None,
-        });
+        let entry = branches
+            .entry(branch_id.to_string())
+            .or_insert(BranchAccum {
+                profile: String::new(),
+                state: "Unknown".to_string(),
+                uid: 0,
+                created_at: None,
+            });
 
         match event_type {
             "branch_created" => {
@@ -748,8 +737,7 @@ fn reconstruct_branches(events: &[serde_json::Value]) -> Vec<BranchInfo> {
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
-                    entry.uid =
-                        d.get("uid").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                    entry.uid = d.get("uid").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                 }
                 entry.state = "Created".to_string();
                 if entry.created_at.is_none() {
@@ -825,11 +813,7 @@ async fn load_audit_log(app: &mut App, client: &PuzzledClient) {
     }
 }
 
-async fn handle_confirm_key(
-    app: &mut App,
-    key: KeyEvent,
-    client: &Option<PuzzledClient>,
-) {
+async fn handle_confirm_key(app: &mut App, key: KeyEvent, client: &Option<PuzzledClient>) {
     match key.code {
         KeyCode::Char('y') | KeyCode::Enter => {
             if let Some(dialog) = app.confirm_dialog.take() {
@@ -869,21 +853,19 @@ async fn handle_confirm_key(
                         if let Some(c) = client {
                             match c.remove_credential(&name).await {
                                 Ok(_) => {
-                                    app.status_message =
-                                        format!("Credential '{}' removed", name);
+                                    app.status_message = format!("Credential '{}' removed", name);
                                     if let Ok(creds_json) = c.list_credentials("").await {
-                                        if let Ok(creds) = serde_json::from_str::<
-                                            Vec<serde_json::Value>,
-                                        >(
-                                            &creds_json
-                                        ) {
+                                        if let Ok(creds) =
+                                            serde_json::from_str::<Vec<serde_json::Value>>(
+                                                &creds_json,
+                                            )
+                                        {
                                             app.credentials = creds;
                                         }
                                     }
                                 }
                                 Err(e) => {
-                                    app.status_message =
-                                        format!("Remove credential failed: {}", e);
+                                    app.status_message = format!("Remove credential failed: {}", e);
                                 }
                             }
                         }
@@ -947,10 +929,7 @@ async fn handle_tick(app: &mut App, client: &Option<PuzzledClient>) {
 fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
     use event::DbusSignalEvent::*;
     match signal {
-        BranchCreated {
-            branch_id,
-            profile,
-        } => {
+        BranchCreated { branch_id, profile } => {
             // Add branch to table from signal (catches ephemeral branches
             // that disappear before the next polling tick)
             let entry = BranchInfo {
@@ -970,7 +949,11 @@ fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
                 app.branch_table_state.select(Some(0));
             }
             app.notify(
-                format!("Branch created: {} ({})", &branch_id[..branch_id.len().min(8)], profile),
+                format!(
+                    "Branch created: {} ({})",
+                    &branch_id[..branch_id.len().min(8)],
+                    profile
+                ),
                 NotificationLevel::Info,
             );
         }
@@ -988,15 +971,16 @@ fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
                 NotificationLevel::Info,
             );
         }
-        BranchRolledBack {
-            branch_id,
-            reason,
-        } => {
+        BranchRolledBack { branch_id, reason } => {
             if let Some(b) = app.branches.iter_mut().find(|b| b.id.0 == branch_id) {
                 b.state = "RolledBack".to_string();
             }
             app.notify(
-                format!("Branch rolled back: {} ({})", &branch_id[..branch_id.len().min(8)], reason),
+                format!(
+                    "Branch rolled back: {} ({})",
+                    &branch_id[..branch_id.len().min(8)],
+                    reason
+                ),
                 NotificationLevel::Warning,
             );
         }
@@ -1013,15 +997,17 @@ fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
             );
         }
         PolicyViolation {
-            branch_id,
-            reason,
-            ..
+            branch_id, reason, ..
         } => {
             if let Some(b) = app.branches.iter_mut().find(|b| b.id.0 == branch_id) {
                 b.state = "Denied".to_string();
             }
             app.notify(
-                format!("Policy violation: {} — {}", &branch_id[..branch_id.len().min(8)], reason),
+                format!(
+                    "Policy violation: {} — {}",
+                    &branch_id[..branch_id.len().min(8)],
+                    reason
+                ),
                 NotificationLevel::Error,
             );
         }
@@ -1041,7 +1027,10 @@ fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
             trigger_json: _,
         } => {
             app.notify(
-                format!("Behavioral trigger: {}", &branch_id[..branch_id.len().min(8)]),
+                format!(
+                    "Behavioral trigger: {}",
+                    &branch_id[..branch_id.len().min(8)]
+                ),
                 NotificationLevel::Warning,
             );
         }
@@ -1050,7 +1039,11 @@ fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
             timeout_secs,
         } => {
             app.notify(
-                format!("Agent timeout: {} ({}s)", &branch_id[..branch_id.len().min(8)], timeout_secs),
+                format!(
+                    "Agent timeout: {} ({}s)",
+                    &branch_id[..branch_id.len().min(8)],
+                    timeout_secs
+                ),
                 NotificationLevel::Warning,
             );
         }
@@ -1082,7 +1075,11 @@ fn handle_dbus_signal(app: &mut App, signal: event::DbusSignalEvent) {
             ..
         } => {
             app.notify(
-                format!("DLP violation: {} — {}", &branch_id[..branch_id.len().min(8)], rule_name),
+                format!(
+                    "DLP violation: {} — {}",
+                    &branch_id[..branch_id.len().min(8)],
+                    rule_name
+                ),
                 NotificationLevel::Error,
             );
         }
@@ -1119,8 +1116,7 @@ fn handle_action_result(app: &mut App, result: ActionResult) {
 
 async fn fetch_branches(client: &PuzzledClient) -> Result<Vec<BranchInfo>> {
     let json = client.list_branches().await?;
-    let branches: Vec<BranchInfo> =
-        serde_json::from_str(&json).context("parsing branch list")?;
+    let branches: Vec<BranchInfo> = serde_json::from_str(&json).context("parsing branch list")?;
     Ok(branches)
 }
 
@@ -1149,7 +1145,8 @@ async fn load_branch_detail(app: &mut App, client: &PuzzledClient, branch_id: &s
     match client.inspect_branch(branch_id).await {
         Ok(info) => {
             app.detail_info = serde_json::from_str(&info).ok();
-            app.status_message = format!("Loaded detail for {}", &branch_id[..branch_id.len().min(8)]);
+            app.status_message =
+                format!("Loaded detail for {}", &branch_id[..branch_id.len().min(8)]);
         }
         Err(_) => {
             // Branch may have been committed/rolled back and removed.
@@ -1180,10 +1177,7 @@ async fn load_branch_detail(app: &mut App, client: &PuzzledClient, branch_id: &s
 
 // -- D-Bus signal listener --
 
-fn spawn_signal_listener(
-    client: &PuzzledClient,
-    tx: mpsc::UnboundedSender<AppEvent>,
-) {
+fn spawn_signal_listener(client: &PuzzledClient, tx: mpsc::UnboundedSender<AppEvent>) {
     let connection = client.connection();
 
     tokio::spawn(async move {
@@ -1198,9 +1192,7 @@ fn spawn_signal_listener(
         };
 
         // Try to add match rule — if it fails, signals won't work but TUI still runs
-        if let Ok(mut stream) =
-            zbus::MessageStream::for_match_rule(rule, connection, None).await
-        {
+        if let Ok(mut stream) = zbus::MessageStream::for_match_rule(rule, connection, None).await {
             use futures_util::StreamExt;
             while let Some(result) = stream.next().await {
                 if let Ok(msg) = result {
@@ -1222,10 +1214,7 @@ fn parse_dbus_signal(msg: &zbus::Message) -> Option<event::DbusSignalEvent> {
     match member {
         "branch_created" => {
             let (branch_id, profile): (String, String) = msg.body().deserialize().ok()?;
-            Some(event::DbusSignalEvent::BranchCreated {
-                branch_id,
-                profile,
-            })
+            Some(event::DbusSignalEvent::BranchCreated { branch_id, profile })
         }
         "branch_committed" => {
             let (branch_id, changeset_hash, profile): (String, String, String) =
@@ -1238,10 +1227,7 @@ fn parse_dbus_signal(msg: &zbus::Message) -> Option<event::DbusSignalEvent> {
         }
         "branch_rolled_back" => {
             let (branch_id, reason): (String, String) = msg.body().deserialize().ok()?;
-            Some(event::DbusSignalEvent::BranchRolledBack {
-                branch_id,
-                reason,
-            })
+            Some(event::DbusSignalEvent::BranchRolledBack { branch_id, reason })
         }
         "governance_review_pending" => {
             let (branch_id, diff_summary): (String, String) = msg.body().deserialize().ok()?;
@@ -1305,12 +1291,8 @@ fn parse_dbus_signal(msg: &zbus::Message) -> Option<event::DbusSignalEvent> {
             })
         }
         "credential_resolved" => {
-            let (branch_id, credential_name, domain, _timestamp): (
-                String,
-                String,
-                String,
-                String,
-            ) = msg.body().deserialize().ok()?;
+            let (branch_id, credential_name, domain, _timestamp): (String, String, String, String) =
+                msg.body().deserialize().ok()?;
             Some(event::DbusSignalEvent::CredentialResolved {
                 branch_id,
                 credential_name,

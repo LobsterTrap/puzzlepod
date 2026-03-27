@@ -33,11 +33,11 @@ pub fn draw_splash(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let chunks = Layout::default()
         .constraints([
             Constraint::Percentage(25),
-            Constraint::Length(5),  // PUZZLE
-            Constraint::Length(5),  // POD
-            Constraint::Length(2),  // tagline
-            Constraint::Length(2),  // version + badge
-            Constraint::Length(2),  // prompt
+            Constraint::Length(5), // PUZZLE
+            Constraint::Length(5), // POD
+            Constraint::Length(2), // tagline
+            Constraint::Length(2), // version + badge
+            Constraint::Length(2), // prompt
             Constraint::Percentage(25),
         ])
         .split(area);
@@ -45,7 +45,14 @@ pub fn draw_splash(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     // PUZZLE in accent purple
     let puzzle_lines: Vec<Line> = PUZZLE_ART
         .iter()
-        .map(|line| Line::from(Span::styled(*line, Style::default().fg(theme.accent_bright).add_modifier(Modifier::BOLD))))
+        .map(|line| {
+            Line::from(Span::styled(
+                *line,
+                Style::default()
+                    .fg(theme.accent_bright)
+                    .add_modifier(Modifier::BOLD),
+            ))
+        })
         .collect();
     let puzzle = Paragraph::new(puzzle_lines).alignment(Alignment::Center);
     f.render_widget(puzzle, chunks[1]);
@@ -53,20 +60,25 @@ pub fn draw_splash(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     // POD in teal
     let pod_lines: Vec<Line> = POD_ART
         .iter()
-        .map(|line| Line::from(Span::styled(*line, Style::default().fg(theme.status_ok).add_modifier(Modifier::BOLD))))
+        .map(|line| {
+            Line::from(Span::styled(
+                *line,
+                Style::default()
+                    .fg(theme.status_ok)
+                    .add_modifier(Modifier::BOLD),
+            ))
+        })
         .collect();
     let pod = Paragraph::new(pod_lines).alignment(Alignment::Center);
     f.render_widget(pod, chunks[2]);
 
     // Tagline
-    let tagline = Paragraph::new(Line::from(vec![
-        Span::styled(
-            "Fork. Explore. Commit.",
-            Style::default()
-                .fg(theme.text_dim)
-                .add_modifier(Modifier::ITALIC),
-        ),
-    ]))
+    let tagline = Paragraph::new(Line::from(vec![Span::styled(
+        "Fork. Explore. Commit.",
+        Style::default()
+            .fg(theme.text_dim)
+            .add_modifier(Modifier::ITALIC),
+    )]))
     .alignment(Alignment::Center);
     f.render_widget(tagline, chunks[3]);
 

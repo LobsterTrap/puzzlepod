@@ -13,7 +13,13 @@ use crate::tui::{
     theme::Theme,
 };
 
-pub fn draw_credential_list(f: &mut Frame, app: &mut App, area: Rect, theme: &Theme, focused: bool) {
+pub fn draw_credential_list(
+    f: &mut Frame,
+    app: &mut App,
+    area: Rect,
+    theme: &Theme,
+    focused: bool,
+) {
     let chunks = ratatui::layout::Layout::default()
         .constraints([Constraint::Length(3), Constraint::Min(4)])
         .split(area);
@@ -41,15 +47,13 @@ pub fn draw_credential_list(f: &mut Frame, app: &mut App, area: Rect, theme: &Th
 
     // Credential table
     if app.credentials.is_empty() {
-        let empty = ratatui::widgets::Paragraph::new(
-            " No credentials. Press [c] to create.",
-        )
-        .style(Style::default().fg(theme.muted))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.border)),
-        );
+        let empty = ratatui::widgets::Paragraph::new(" No credentials. Press [c] to create.")
+            .style(Style::default().fg(theme.muted))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border)),
+            );
         f.render_widget(empty, chunks[1]);
         return;
     }
