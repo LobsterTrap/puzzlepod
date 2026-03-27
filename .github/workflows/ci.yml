@@ -280,7 +280,7 @@ jobs:
           # Run live D-Bus integration tests
           echo "=== Suite — Live D-Bus Integration (26 tests) ==="
           set +e
-          sudo -E cargo test -p puzzled --test live_dbus_integration -- --test-threads=1
+          sudo -E env "PATH=$PATH" cargo test -p puzzled --test live_dbus_integration -- --test-threads=1
           TEST_RESULT=$?
           set -e
 
