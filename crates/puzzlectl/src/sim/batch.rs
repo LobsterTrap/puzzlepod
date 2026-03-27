@@ -143,6 +143,7 @@ pub async fn run_one(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_one_with_mode(
     client: &PuzzledClient,
     scenarios_dir: &Path,
