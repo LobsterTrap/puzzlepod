@@ -8,8 +8,20 @@ filesystem:
     - /workspace
   denylist: []
 
-exec_allowlist: []
-exec_denylist: []
+exec_allowlist:
+  - /usr/bin/python3
+  - /usr/bin/cat
+  - /usr/bin/ls
+
+exec_denylist:
+  - nsenter
+  - unshare
+  - chroot
+  - mount
+  - strace
+  - gdb
+  - su
+  - sudo
 
 resource_limits:
   memory_bytes: 1073741824
