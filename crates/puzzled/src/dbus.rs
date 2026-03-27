@@ -4090,15 +4090,15 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_check_branch_access_root_always_allowed() {
+    fn test_check_branch_access_root_nonexistent_branch_fails_closed() {
         let dir = tempfile::tempdir().unwrap();
         let manager = create_test_manager(dir.path());
 
-        // Even for a non-existent branch, root gets "not found" not "access denied"
+        // H-30: Even root gets an error for nonexistent branches (fail closed)
         let id = BranchId::from("nonexistent".to_string());
         let result = check_branch_access(0, &manager, &id);
-        // Root bypasses the access check entirely — returns Ok even if branch not found
-        assert!(result.is_ok());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
     }
 
     #[test]
