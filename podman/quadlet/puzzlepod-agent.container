@@ -36,7 +36,7 @@ Label=org.lobstertrap.puzzlepod.profile=standard
 SecurityOpt=seccomp=/var/lib/puzzled/branches/my-agent/seccomp.json
 
 # SELinux type enforcement for agent domain
-SecurityOpt=label=type:puzzlepod_t
+SecurityOpt=label=type:puzzlepod_agent_t
 
 # Branch workspace bind mount (OverlayFS merged dir)
 Mount=type=bind,src=/var/lib/puzzled/branches/my-agent/merged,dst=/workspace

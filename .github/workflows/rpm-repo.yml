@@ -103,6 +103,11 @@ jobs:
           mkdir -p ${{ matrix.repo_path }}
           cp rpms/*.noarch.rpm rpms/*.x86_64.rpm \
             ${{ matrix.repo_path }}/ 2>/dev/null || true
+          # Verify at least one RPM was copied
+          if ! ls ${{ matrix.repo_path }}/*.rpm >/dev/null 2>&1; then
+            echo "ERROR: No RPMs found for repo"
+            exit 1
+          fi
           # Strip debug packages (large, not needed for users)
           rm -f ${{ matrix.repo_path }}/*-debuginfo-* \
                 ${{ matrix.repo_path }}/*-debugsource-*
@@ -165,7 +170,7 @@ jobs:
           EOF
 
           # Determine tarball filename for the index page
-          TARBALL=$(ls pages/source/puzzlepod-*.tar.gz 2>/dev/null | head -1)
+          TARBALL=$(find pages/source/ -maxdepth 1 -name 'puzzlepod-*.tar.gz' -print -quit 2>/dev/null)
           TARBALL_NAME=$(basename "$TARBALL" 2>/dev/null || echo "puzzlepod-source.tar.gz")
 
           # Index page

@@ -310,7 +310,7 @@ rpm: srpm-all
 	FAILED=""; \
 	for srpm in packaging/srpms/*.src.rpm; do \
 		echo "--- mock: $$srpm ---"; \
-		if mock -r "$$MOCK_ROOT" --enable-network --rebuild "$$srpm" --resultdir=packaging/rpms/; then \
+		if mock -r "$$MOCK_ROOT" --enable-network --isolation=simple --rebuild "$$srpm" --resultdir=packaging/rpms/; then \
 			echo "--- OK: $$srpm ---"; \
 		else \
 			echo "--- FAILED: $$srpm ---"; \

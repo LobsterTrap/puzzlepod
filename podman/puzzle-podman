@@ -581,9 +581,9 @@ if [ $AGENT_NATIVE_MODE -eq 1 ]; then
 
     # OCI hook annotations
     NATIVE_ARGS+=(--annotation "run.oci.handler=puzzlepod")
-    # Only apply puzzlepod_t SELinux label if the type exists on the host
-    if seinfo -t puzzlepod_t &>/dev/null 2>&1; then
-        NATIVE_ARGS+=(--security-opt "label=type:puzzlepod_t")
+    # Only apply puzzlepod_agent_t SELinux label if the type exists on the host
+    if seinfo -t puzzlepod_agent_t &>/dev/null 2>&1; then
+        NATIVE_ARGS+=(--security-opt "label=type:puzzlepod_agent_t")
     fi
 fi
 

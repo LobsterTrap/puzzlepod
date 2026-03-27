@@ -893,7 +893,7 @@ puzzled (runs as root or user)
 - CLI override: `puzzled --config <path>`
 - Auto-detection: `DaemonConfig::load_or_default()` checks system path first, then user config for non-root users, then falls back to defaults
 
-**Hardening:** Minimal capabilities, SELinux-confined (`puzzlepod_agent_t`), seccomp-BPF (configurable per-profile), no external network access.
+**Hardening:** Minimal capabilities, SELinux-confined (`puzzlepod_t`), seccomp-BPF (configurable per-profile), no external network access.
 
 **Fail-closed behavior:** If puzzled crashes during governance evaluation, pending commits are rolled back on restart. Landlock restrictions on agent processes survive (kernel-enforced, independent). systemd restarts puzzled; it re-discovers active branches from `/var/lib/puzzled/branches/`.
 

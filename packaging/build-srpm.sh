@@ -122,7 +122,10 @@ echo "  done"
 # Preserve source tarball for CI artifact upload
 TARBALL_DIR="$SCRIPT_DIR/source-tarball"
 mkdir -p "$TARBALL_DIR"
-cp "/tmp/${TARBALL}" "$TARBALL_DIR/"
+cp "/tmp/${TARBALL}" "$TARBALL_DIR/" || {
+    echo "ERROR: Failed to preserve source tarball" >&2
+    exit 1
+}
 echo ""
 echo "Source tarball: $TARBALL_DIR/${TARBALL}"
 

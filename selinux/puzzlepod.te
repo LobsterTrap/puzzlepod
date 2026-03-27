@@ -164,6 +164,7 @@ tunable_policy(`puzzled_agent_execmem',`
 
 # Filesystem: read-only access to specific system paths
 files_read_usr_files(puzzlepod_agent_t)
+corecmd_exec_bin(puzzlepod_agent_t)
 libs_use_ld_so(puzzlepod_agent_t)
 libs_use_shared_libs(puzzlepod_agent_t)
 

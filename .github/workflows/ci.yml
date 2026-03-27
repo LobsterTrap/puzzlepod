@@ -332,6 +332,7 @@ jobs:
 
       - name: Build RPMs with mock
         run: |
+          shopt -s nullglob
           mkdir -p packaging/rpms
           for srpm in packaging/srpms/*.src.rpm; do
             echo "--- mock: $srpm ---"
