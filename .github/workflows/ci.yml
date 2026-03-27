@@ -47,8 +47,7 @@ jobs:
             --test ima_integration --test phase2_features --test policy_evaluation \
             --test profile_validation --test seccomp_validation --test security_hardening \
             --test wal_recovery_execution --test wal_recovery --test wal_safety \
-            --test podman_native_integration --test cross_module_integration \
-            --test e2e_governance_lifecycle
+            --test podman_native_integration --test cross_module_integration
           cargo test -p puzzlectl
           cargo test -p puzzled-types
           cargo test -p puzzle-proxy
@@ -220,6 +219,7 @@ jobs:
             --test phase2_features --test policy_evaluation --test profile_validation \
             --test seccomp_validation --test security_hardening \
             --test wal_recovery_execution --test wal_recovery --test wal_safety \
+            --test e2e_governance_lifecycle \
             -- --include-ignored --test-threads=1
           cargo test -p puzzlectl -- --include-ignored --test-threads=1
           cargo test -p puzzled-types -- --include-ignored --test-threads=1
