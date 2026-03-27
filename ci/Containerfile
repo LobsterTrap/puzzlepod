@@ -4,18 +4,18 @@
 # so that CI jobs skip the ~80s setup overhead on every run.
 #
 # Build (~3 min, all pre-built binaries, no cargo install):
-#   podman build -t ghcr.io/lobstertrap/puzzlepod/ci:fedora42 -f ci/Containerfile .
+#   podman build -t ghcr.io/lobstertrap/puzzlepod/ci:fedora43 -f ci/Containerfile .
 #
 # Push:
 #   podman login ghcr.io
-#   podman push ghcr.io/lobstertrap/puzzlepod/ci:fedora42
+#   podman push ghcr.io/lobstertrap/puzzlepod/ci:fedora43
 #
 # Rebuild when:
 #   - Rust stable version bumps (quarterly)
 #   - System deps change (rare)
 #   - cargo-deny/cargo-tarpaulin version bumps
 
-FROM quay.io/fedora/fedora:42
+FROM quay.io/fedora/fedora:43
 
 # System build dependencies
 RUN dnf install -y --setopt=install_weak_deps=False \
@@ -25,8 +25,12 @@ RUN dnf install -y --setopt=install_weak_deps=False \
         rpm-build rpmdevtools \
         selinux-policy-devel \
         dbus-daemon dbus-tools \
+        mock createrepo_c \
     && dnf clean all \
     && rm -rf /var/cache/dnf
+
+# mock requires group membership
+RUN usermod -a -G mock root
 
 # Rust toolchain (stable + fmt + clippy)
 RUN dnf install -y --setopt=install_weak_deps=False \

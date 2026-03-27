@@ -31,7 +31,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  CI_IMAGE: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
+  CI_IMAGE: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -301,7 +301,7 @@ jobs:
     runs-on: [self-hosted, privileged]
     continue-on-error: true
     container:
-      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
+      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
       options: --privileged
     steps:
       - uses: actions/checkout@v4
@@ -337,6 +337,50 @@ jobs:
           ./target/debug/puzzle-sandbox-demo exec --allow-read "$SECURITY_TEST_DIR" -- bash "$SECURITY_TEST_DIR/test_rogue_agent.sh"
 
   # ---------------------------------------------------------------------------
+  # RPM build validation (mock, all targets)
+  # ---------------------------------------------------------------------------
+  rpm-build:
+    name: RPM Build (${{ matrix.mock_root }})
+    needs: [ci]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mock_root: fedora-42-x86_64
+          - mock_root: fedora-43-x86_64
+          - mock_root: centos-stream+epel-10-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build SRPMs
+        run: packaging/build-srpm.sh
+
+      - name: Build RPMs with mock
+        run: |
+          mkdir -p packaging/rpms
+          for srpm in packaging/srpms/*.src.rpm; do
+            echo "--- mock: $srpm ---"
+            mock -r ${{ matrix.mock_root }} --enable-network --isolation=simple \
+              --rebuild "$srpm" --resultdir=packaging/rpms/ || {
+              echo "FAILED: $srpm"
+              cat packaging/rpms/build.log 2>/dev/null || true
+              exit 1
+            }
+          done
+
+      - name: Upload RPMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms-${{ matrix.mock_root }}
+          path: |
+            packaging/rpms/*.rpm
+            !packaging/rpms/*.src.rpm
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
   # Release build + RPM spec validation
   # ---------------------------------------------------------------------------
   release:
@@ -345,7 +389,7 @@ jobs:
     if: always() && needs.ci.result == 'success' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora42
+      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
     steps:
       - uses: actions/checkout@v4
         with:

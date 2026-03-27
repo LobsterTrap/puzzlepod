@@ -1,0 +1,5 @@
+[puzzlepod]
+name=PuzzlePod - Governance for AI Agent Containers
+baseurl=https://lobstertrap.github.io/puzzlepod/repo/fedora/$releasever/x86_64/
+enabled=1
+gpgcheck=0

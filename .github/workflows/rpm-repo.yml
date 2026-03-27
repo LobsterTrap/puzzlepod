@@ -1,0 +1,226 @@
+# Build RPMs for all targets and publish as a dnf/yum repository on GitHub Pages.
+#
+# Triggers on every push to main (post-merge) and manual dispatch.
+# Three-stage pipeline: build-source → build-rpms (matrix) → publish
+#
+# Users install with:
+#   sudo dnf config-manager addrepo --from-repofile=https://lobstertrap.github.io/puzzlepod/puzzlepod.repo
+#   sudo dnf install puzzlepod
+
+name: RPM Repository
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Stage 1: Build source tarball + SRPMs (once, shared by all targets)
+  # ---------------------------------------------------------------------------
+  build-source:
+    name: Build Source & SRPMs
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build SRPMs
+        run: packaging/build-srpm.sh
+
+      - name: Upload SRPMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: srpms
+          path: packaging/srpms/*.src.rpm
+
+      - name: Upload source tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-tarball
+          path: packaging/source-tarball/*.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: Build binary RPMs per target (matrix, uses shared SRPMs)
+  # ---------------------------------------------------------------------------
+  build-rpms:
+    name: Build RPMs (${{ matrix.target }})
+    needs: build-source
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/lobstertrap/puzzlepod/ci:fedora43
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: fedora-42
+            mock_root: fedora-42-x86_64
+            repo_path: repo/fedora/42/x86_64
+          - target: fedora-43
+            mock_root: fedora-43-x86_64
+            repo_path: repo/fedora/43/x86_64
+          - target: epel-10
+            mock_root: centos-stream+epel-10-x86_64
+            repo_path: repo/epel/10/x86_64
+    steps:
+      - name: Download SRPMs
+        uses: actions/download-artifact@v4
+        with:
+          name: srpms
+          path: srpms/
+
+      - name: Build RPMs via mock
+        run: |
+          mkdir -p rpms
+          FAILED=""
+          for srpm in srpms/*.src.rpm; do
+            echo "--- mock: $srpm ---"
+            if mock -r ${{ matrix.mock_root }} --enable-network --isolation=simple \
+              --rebuild "$srpm" --resultdir=rpms/; then
+              echo "--- OK: $srpm ---"
+            else
+              echo "--- FAILED: $srpm ---"
+              FAILED="$FAILED $srpm"
+            fi
+          done
+          if [ -n "$FAILED" ]; then
+            echo "=== FAILED builds ===$FAILED"
+            exit 1
+          fi
+
+      - name: Prepare repo directory
+        run: |
+          mkdir -p ${{ matrix.repo_path }}
+          cp rpms/*.noarch.rpm rpms/*.x86_64.rpm \
+            ${{ matrix.repo_path }}/ 2>/dev/null || true
+          # Strip debug packages (large, not needed for users)
+          rm -f ${{ matrix.repo_path }}/*-debuginfo-* \
+                ${{ matrix.repo_path }}/*-debugsource-*
+          createrepo_c ${{ matrix.repo_path }}
+
+      - name: Upload repo artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-${{ matrix.target }}
+          path: repo/
+
+  # ---------------------------------------------------------------------------
+  # Stage 3: Assemble and deploy to GitHub Pages
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish to GitHub Pages
+    needs: [build-source, build-rpms]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download all repo artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: pages/repo/
+          pattern: repo-*
+          merge-multiple: true
+
+      - name: Download source tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tarball
+          path: pages/source/
+
+      - name: Download SRPMs
+        uses: actions/download-artifact@v4
+        with:
+          name: srpms
+          path: pages/source/
+
+      - name: Generate .repo files and index
+        run: |
+          # Fedora .repo (uses $releasever for version auto-detection)
+          cat > pages/puzzlepod.repo << 'EOF'
+          [puzzlepod]
+          name=PuzzlePod - Governance for AI Agent Containers
+          baseurl=https://lobstertrap.github.io/puzzlepod/repo/fedora/$releasever/x86_64/
+          enabled=1
+          gpgcheck=0
+          EOF
+
+          # EL .repo
+          cat > pages/puzzlepod-el.repo << 'EOF'
+          [puzzlepod]
+          name=PuzzlePod - Governance for AI Agent Containers
+          baseurl=https://lobstertrap.github.io/puzzlepod/repo/epel/$releasever/x86_64/
+          enabled=1
+          gpgcheck=0
+          EOF
+
+          # Determine tarball filename for the index page
+          TARBALL=$(ls pages/source/puzzlepod-*.tar.gz 2>/dev/null | head -1)
+          TARBALL_NAME=$(basename "$TARBALL" 2>/dev/null || echo "puzzlepod-source.tar.gz")
+
+          # Index page
+          cat > pages/index.html << HTMLEOF
+          <!DOCTYPE html>
+          <html>
+          <head><title>PuzzlePod RPM Repository</title></head>
+          <body>
+          <h1>PuzzlePod RPM Repository</h1>
+          <p>Governance for AI agent containers on Linux.</p>
+
+          <h2>Source</h2>
+          <ul>
+            <li><a href="source/${TARBALL_NAME}">${TARBALL_NAME}</a></li>
+            <li><a href="source/">All source RPMs</a></li>
+          </ul>
+
+          <h2>Install &mdash; Fedora 42 / 43</h2>
+          <pre>
+          sudo dnf config-manager addrepo \\
+            --from-repofile=https://lobstertrap.github.io/puzzlepod/puzzlepod.repo
+          sudo dnf install puzzlepod
+          </pre>
+
+          <h2>Install &mdash; RHEL 10 / CentOS Stream 10 / AlmaLinux 10</h2>
+          <pre>
+          sudo dnf config-manager addrepo \\
+            --from-repofile=https://lobstertrap.github.io/puzzlepod/puzzlepod-el.repo
+          sudo dnf install puzzlepod
+          </pre>
+
+          <h2>Available Packages</h2>
+          <ul>
+            <li><a href="repo/fedora/42/x86_64/">Fedora 42 x86_64</a></li>
+            <li><a href="repo/fedora/43/x86_64/">Fedora 43 x86_64</a></li>
+            <li><a href="repo/epel/10/x86_64/">EL 10 x86_64</a></li>
+          </ul>
+
+          <h2>Repository Files</h2>
+          <ul>
+            <li><a href="puzzlepod.repo">puzzlepod.repo</a> (Fedora)</li>
+            <li><a href="puzzlepod-el.repo">puzzlepod-el.repo</a> (RHEL/EL)</li>
+          </ul>
+          </body>
+          </html>
+          HTMLEOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
