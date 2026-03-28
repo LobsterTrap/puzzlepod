@@ -120,11 +120,88 @@ jobs:
           path: repo/
 
   # ---------------------------------------------------------------------------
+  # Stage 2b: Build aarch64 binary RPMs per target (QEMU emulation)
+  # ---------------------------------------------------------------------------
+  build-rpms-aarch64:
+    name: Build RPMs (${{ matrix.target }})
+    needs: build-source
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: fedora-42-aarch64
+            mock_root: fedora-42-aarch64
+            repo_path: repo/fedora/42/aarch64
+          - target: fedora-43-aarch64
+            mock_root: fedora-43-aarch64
+            repo_path: repo/fedora/43/aarch64
+          - target: epel-10-aarch64
+            mock_root: centos-stream+epel-10-aarch64
+            repo_path: repo/epel/10/aarch64
+    steps:
+      - name: Download SRPMs
+        uses: actions/download-artifact@v4
+        with:
+          name: srpms
+          path: srpms/
+
+      - name: Build RPMs via mock (aarch64 QEMU)
+        uses: uraimo/run-on-arch-action@v3
+        with:
+          arch: aarch64
+          distro: fedora_latest
+          githubToken: ${{ github.token }}
+          dockerRunArgs: |
+            --volume "${{ github.workspace }}/srpms:/srpms"
+            --volume "${{ github.workspace }}/rpms:/rpms"
+          install: |
+            dnf install -y --setopt=install_weak_deps=False mock createrepo_c
+            usermod -a -G mock root
+          run: |
+            FAILED=""
+            for srpm in /srpms/*.src.rpm; do
+              echo "--- mock: $srpm ---"
+              if mock -r ${{ matrix.mock_root }} --enable-network --isolation=simple \
+                --rebuild "$srpm" --resultdir=/rpms/; then
+                echo "--- OK: $srpm ---"
+              else
+                echo "--- FAILED: $srpm ---"
+                FAILED="$FAILED $srpm"
+              fi
+            done
+            if [ -n "$FAILED" ]; then
+              echo "=== FAILED builds ===$FAILED"
+              exit 1
+            fi
+
+      - name: Prepare repo directory
+        run: |
+          mkdir -p ${{ matrix.repo_path }}
+          cp rpms/*.noarch.rpm rpms/*.aarch64.rpm \
+            ${{ matrix.repo_path }}/ 2>/dev/null || true
+          # Verify at least one RPM was copied
+          if ! ls ${{ matrix.repo_path }}/*.rpm >/dev/null 2>&1; then
+            echo "ERROR: No RPMs found for repo"
+            exit 1
+          fi
+          # Strip debug packages (large, not needed for users)
+          rm -f ${{ matrix.repo_path }}/*-debuginfo-* \
+                ${{ matrix.repo_path }}/*-debugsource-*
+          createrepo_c ${{ matrix.repo_path }}
+
+      - name: Upload repo artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-${{ matrix.target }}
+          path: repo/
+
+  # ---------------------------------------------------------------------------
   # Stage 3: Assemble and deploy to GitHub Pages
   # ---------------------------------------------------------------------------
   publish:
     name: Publish to GitHub Pages
-    needs: [build-source, build-rpms]
+    needs: [build-source, build-rpms, build-rpms-aarch64]
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -155,7 +232,7 @@ jobs:
           cat > pages/puzzlepod.repo << 'EOF'
           [puzzlepod]
           name=PuzzlePod - Governance for AI Agent Containers
-          baseurl=https://lobstertrap.github.io/puzzlepod/repo/fedora/$releasever/x86_64/
+          baseurl=https://lobstertrap.github.io/puzzlepod/repo/fedora/$releasever/$basearch/
           enabled=1
           gpgcheck=0
           EOF
@@ -164,7 +241,7 @@ jobs:
           cat > pages/puzzlepod-el.repo << 'EOF'
           [puzzlepod]
           name=PuzzlePod - Governance for AI Agent Containers
-          baseurl=https://lobstertrap.github.io/puzzlepod/repo/epel/$releasever/x86_64/
+          baseurl=https://lobstertrap.github.io/puzzlepod/repo/epel/$releasever/$basearch/
           enabled=1
           gpgcheck=0
           EOF
@@ -205,8 +282,11 @@ jobs:
           <h2>Available Packages</h2>
           <ul>
             <li><a href="repo/fedora/42/x86_64/">Fedora 42 x86_64</a></li>
+            <li><a href="repo/fedora/42/aarch64/">Fedora 42 aarch64</a></li>
             <li><a href="repo/fedora/43/x86_64/">Fedora 43 x86_64</a></li>
+            <li><a href="repo/fedora/43/aarch64/">Fedora 43 aarch64</a></li>
             <li><a href="repo/epel/10/x86_64/">EL 10 x86_64</a></li>
+            <li><a href="repo/epel/10/aarch64/">EL 10 aarch64</a></li>
           </ul>
 
           <h2>Repository Files</h2>

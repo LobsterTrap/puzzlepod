@@ -354,6 +354,59 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
+  # RPM build validation — aarch64 (QEMU emulation, all targets)
+  # ---------------------------------------------------------------------------
+  rpm-build-aarch64:
+    name: RPM Build (${{ matrix.mock_root }})
+    needs: [ci]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mock_root: fedora-42-aarch64
+          - mock_root: fedora-43-aarch64
+          - mock_root: centos-stream+epel-10-aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build SRPMs and RPMs (aarch64 QEMU)
+        uses: uraimo/run-on-arch-action@v3
+        with:
+          arch: aarch64
+          distro: fedora_latest
+          githubToken: ${{ github.token }}
+          dockerRunArgs: |
+            --volume "${{ github.workspace }}:/work"
+          install: |
+            dnf install -y --setopt=install_weak_deps=False \
+              mock rpm-build rpmdevtools git
+            usermod -a -G mock root
+          run: |
+            cd /work
+            packaging/build-srpm.sh
+            shopt -s nullglob
+            mkdir -p packaging/rpms
+            for srpm in packaging/srpms/*.src.rpm; do
+              echo "--- mock: $srpm ---"
+              mock -r ${{ matrix.mock_root }} --enable-network --isolation=simple \
+                --rebuild "$srpm" --resultdir=packaging/rpms/ || {
+                echo "FAILED: $srpm"
+                cat packaging/rpms/build.log 2>/dev/null || true
+                exit 1
+              }
+            done
+
+      - name: Upload RPMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms-${{ matrix.mock_root }}
+          path: |
+            packaging/rpms/*.rpm
+            !packaging/rpms/*.src.rpm
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
   # Release build + RPM spec validation
   # ---------------------------------------------------------------------------
   release:
