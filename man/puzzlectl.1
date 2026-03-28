@@ -165,7 +165,7 @@ Test OPA/Rego policies against a synthetic input file. The input file
 contains a JSON representation of a changeset. Reports the policy
 decision and any violations.
 .TP
-.B puzzlectl policy add\-rule [\fB\-\-deny\-path\fR \fIglob\fR] [\fB\-\-max\-file\-size\fR \fIbytes\fR] [\fB\-\-deny\-extension\fR \fIexts\fR] [\fB\-\-max\-files\fR \fIn\fR] [\fB\-\-severity\fR \fIlevel\fR] [\fB\-\-dry\-run\fR]
+.B puzzlectl policy add\-rule [\fB\-\-deny\-path\fR \fIglob\fR] [\fB\-\-max\-file\-size\fR \fIbytes\fR] [\fB\-\-deny\-extension\fR \fIexts\fR] [\fB\-\-max\-files\fR \fIn\fR] [\fB\-\-severity\fR \fIlevel\fR] [\fB\-\-message\fR \fItext\fR] [\fB\-\-policy\-file\fR \fIfile\fR] [\fB\-\-dry\-run\fR]
 Add a governance rule from a template without writing Rego by hand.
 At least one rule type flag is required. Supported rule types:
 .RS
@@ -187,6 +187,12 @@ files.
 .BI \-\-severity " level"
 Violation severity:
 .BR warning ", " error " (default), " critical .
+.TP
+.BI \-\-message " text"
+Custom violation message template. Overrides the default message for the rule type.
+.TP
+.BI \-\-policy\-file " file"
+Path to the policy file to write or append to. Defaults to the policies directory.
 .TP
 .B \-\-dry\-run
 Print the generated Rego to stdout without writing to disk.

@@ -71,6 +71,9 @@ behavioral:
 Profiles can inherit from a parent profile using the `extends` field:
 
 ```yaml
+# Partial example — fields not shown here are required in the full profile.
+# Omitted Vec fields (e.g., read_allowlist) inherit from the parent when empty.
+# Omitted scalar fields use serde defaults, NOT the parent's values (see warning below).
 name: my-custom-agent
 description: Custom agent extending standard
 extends: standard
@@ -82,14 +85,23 @@ filesystem:
 
 resource_limits:
   memory_bytes: 1073741824
+  cpu_shares: 100
+  io_weight: 100
   max_pids: 128
-  # resource_limits always use child's values
+  storage_quota_mb: 1024
+  inode_quota: 10000
 ```
 
 **Merge rules:**
 - **Vec fields** (exec_allowlist, exec_denylist, capabilities, all filesystem lists): if the child's list is empty, the parent's list is inherited; if non-empty, the child's list replaces the parent's entirely
 - **Scalar/struct fields** (resource_limits, network, behavioral, fail_mode, seccomp_mode, etc.): always use the child's values
 - **credentials**: child's if present, else parent's
+
+> **Security warning:** Scalar fields like `fail_mode`, `seccomp_mode`,
+> `allow_symlinks`, and `allow_exec_overlay` do NOT inherit from the parent.
+> When omitted in a child profile, they receive serde defaults (e.g.,
+> `SeccompMode::Permissive`), which may be less restrictive than the parent.
+> Always explicitly set security-relevant scalar fields in child profiles.
 
 **Constraints:**
 - Maximum inheritance depth: 3 levels (e.g., grandchild extends child extends parent)

@@ -389,7 +389,12 @@ fn domain_matches_pattern(domain: &str, pattern: &str) -> bool {
 /// - Vec fields (exec_allowlist, exec_denylist, capabilities, filesystem lists):
 ///   if child's list is empty, inherit parent's; otherwise use child's
 /// - Scalar/struct fields (resource_limits, network, behavioral, enforcement,
-///   fail_mode, seccomp_mode, allow_symlinks, allow_exec_overlay): always use child's
+///   fail_mode, seccomp_mode, allow_symlinks, allow_exec_overlay): always use child's.
+///   **Security note**: When a child profile omits these fields, serde fills them
+///   with defaults (e.g., SeccompMode::Permissive, allow_symlinks: false). This
+///   means omitting a field in a child profile does NOT inherit the parent's value
+///   for scalars — it uses the serde default. Child profiles that extend a strict
+///   parent MUST explicitly set security-relevant scalar fields to avoid weakening.
 /// - `credentials`: use child's if Some, else parent's
 /// - `extends`: set to None (resolved)
 fn merge_profile(parent: &AgentProfile, child: &AgentProfile) -> AgentProfile {
@@ -491,10 +496,16 @@ impl ProfileLoader {
             }
         }
 
-        // M2: Atomic swap — only replace profiles if all loaded successfully.
-        self.profiles = new_profiles;
+        // M2: Atomic swap — resolve inheritance on a temporary loader first,
+        // only replace self.profiles after full success. If inheritance
+        // resolution fails, the previous profile set is preserved.
+        let mut resolved = Self {
+            profiles_dir: self.profiles_dir.clone(),
+            profiles: new_profiles,
+        };
+        resolved.resolve_inheritance()?;
 
-        self.resolve_inheritance()?;
+        self.profiles = resolved.profiles;
 
         tracing::info!(count = self.profiles.len(), "loaded agent profiles");
         Ok(())

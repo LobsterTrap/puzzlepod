@@ -1708,12 +1708,14 @@ fn output_run_result(format: OutputFormat, branch_id: &str, status: &str, change
     }
 }
 
+/// Returns true if the policy rejected the commit.
 fn output_run_result_with_governance(
     format: OutputFormat,
     branch_id: &str,
     commit_json: &str,
     changes: usize,
-) {
+) -> bool {
+    let mut rejected = false;
     match format {
         OutputFormat::Json => {
             println!(
@@ -1724,6 +1726,14 @@ fn output_run_result_with_governance(
                 )
                 .unwrap_or_else(|_| commit_json.to_string())
             );
+            // Check for rejection in JSON output mode too
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(commit_json) {
+                if let Some(result) = v.get("policy_result") {
+                    if result.get("Rejected").is_some() {
+                        rejected = true;
+                    }
+                }
+            }
         }
         OutputFormat::Text => {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(commit_json) {
@@ -1731,6 +1741,7 @@ fn output_run_result_with_governance(
                     if result.get("Approved").is_some() {
                         eprintln!("[run] committed ({changes} file(s), policy: approved)");
                     } else if let Some(violations) = result.get("Rejected") {
+                        rejected = true;
                         eprintln!(
                             "[run] rolled back by policy ({} violation(s)):",
                             violations.as_array().map(|a| a.len()).unwrap_or(0)
@@ -1759,6 +1770,7 @@ fn output_run_result_with_governance(
             }
         }
     }
+    rejected
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1810,11 +1822,24 @@ async fn cmd_run(
         eprintln!("[run] agent exited (state: {final_state})");
     }
 
+    // Check for terminal error states before attempting diff/commit
+    match final_state.as_str() {
+        "exited" | "governance_review" => {} // proceed to diff/commit
+        "failed" | "terminated" | "degraded" => {
+            let reason = format!("branch ended in state: {final_state}");
+            let _ = client.rollback_branch(&branch_id, &reason).await;
+            output_run_result(output, &branch_id, &final_state, 0);
+            anyhow::bail!("branch {branch_id} ended in terminal state: {final_state}");
+        }
+        _ => {
+            if matches!(output, OutputFormat::Text) {
+                eprintln!("[run] warning: unexpected state '{final_state}', attempting diff");
+            }
+        }
+    }
+
     // Step 4: Get diff
-    let diff_json = client
-        .diff_branch(&branch_id)
-        .await
-        .unwrap_or_else(|_| "[]".into());
+    let diff_json = client.diff_branch(&branch_id).await?;
     let change_count = serde_json::from_str::<Vec<serde_json::Value>>(&diff_json)
         .map(|v| v.len())
         .unwrap_or(0);
@@ -1837,12 +1862,14 @@ async fn cmd_run(
     }
 
     // Step 7: Decision
+    let mut policy_rejected = false;
     if auto_rollback {
         client.rollback_branch(&branch_id, "auto-rollback").await?;
         output_run_result(output, &branch_id, "rolled_back", change_count);
     } else if auto_commit {
         let result = client.commit_branch(&branch_id).await?;
-        output_run_result_with_governance(output, &branch_id, &result, change_count);
+        policy_rejected =
+            output_run_result_with_governance(output, &branch_id, &result, change_count);
     } else {
         // Interactive prompt
         if !std::io::stdin().is_terminal() {
@@ -1855,7 +1882,12 @@ async fn cmd_run(
             match prompt_approve_reject()? {
                 Decision::Approve => {
                     let result = client.commit_branch(&branch_id).await?;
-                    output_run_result_with_governance(output, &branch_id, &result, change_count);
+                    policy_rejected = output_run_result_with_governance(
+                        output,
+                        &branch_id,
+                        &result,
+                        change_count,
+                    );
                 }
                 Decision::Reject => {
                     client.rollback_branch(&branch_id, "user rejected").await?;
@@ -1869,7 +1901,7 @@ async fn cmd_run(
                     std::io::stdin().read_line(&mut line)?;
                     if line.trim().eq_ignore_ascii_case("y") {
                         let result = client.commit_branch(&branch_id).await?;
-                        output_run_result_with_governance(
+                        policy_rejected = output_run_result_with_governance(
                             output,
                             &branch_id,
                             &result,
@@ -1882,6 +1914,9 @@ async fn cmd_run(
                 }
             }
         }
+    }
+    if policy_rejected {
+        anyhow::bail!("governance policy rejected the changes");
     }
     Ok(())
 }
@@ -2143,6 +2178,12 @@ fn cmd_profile_init(
         },
         Ok,
     )?;
+    if !["Blocked", "Gated", "Monitored", "Unrestricted"].contains(&net_mode.as_str()) {
+        anyhow::bail!(
+            "invalid network mode '{}': must be one of: Blocked, Gated, Monitored, Unrestricted",
+            net_mode
+        );
+    }
 
     let mut allowed_domains = Vec::new();
     if net_mode == "Gated" {
@@ -2164,38 +2205,84 @@ fn cmd_profile_init(
         .parse()
         .context("invalid storage")?;
 
-    let mut y = String::new();
-    y += &format!("name: {name}\n");
-    y += &format!("description: \"{description}\"\n");
-    if let Some(ref ext) = extends_val {
-        y += &format!("extends: {ext}\n");
-    }
-    y += "\nfilesystem:\n";
-    y += "  read_allowlist:\n    - /usr/bin\n    - /usr/share\n    - /usr/lib\n    - /usr/lib64\n";
-    y += "    - /proc/self\n    - /dev/null\n    - /dev/urandom\n    - /etc/localtime\n";
-    y += "  write_allowlist:\n";
-    for d in &write_dirs {
-        y += &format!("    - {d}\n");
-    }
-    y += "  denylist:\n    - /etc/shadow\n    - /etc/gshadow\n    - /etc/ssh\n";
-    y += "\nexec_allowlist: []\nexec_denylist: []\n";
-    y += &format!(
-        "\nresource_limits:\n  memory_bytes: {}\n",
-        memory_mb * 1024 * 1024
-    );
-    y += &format!("  cpu_shares: 100\n  io_weight: 100\n  max_pids: {max_pids}\n");
-    y += &format!("  storage_quota_mb: {storage_mb}\n  inode_quota: 10000\n");
-    y += &format!("\nnetwork:\n  mode: {net_mode}\n");
-    if !allowed_domains.is_empty() {
-        y += "  allowed_domains:\n";
-        for d in &allowed_domains {
-            y += &format!("    - {d}\n");
-        }
-    } else {
-        y += "  allowed_domains: []\n";
-    }
-    y += "\nbehavioral:\n  max_deletions: 50\n  max_reads_per_minute: 1000\n  credential_access_alert: false\n";
-    y += "\nfail_mode: FailClosed\nseccomp_mode: Permissive\nallow_symlinks: false\n";
+    let network_mode: puzzled_types::NetworkMode = match net_mode.as_str() {
+        "Blocked" => puzzled_types::NetworkMode::Blocked,
+        "Gated" => puzzled_types::NetworkMode::Gated,
+        "Monitored" => puzzled_types::NetworkMode::Monitored,
+        "Unrestricted" => puzzled_types::NetworkMode::Unrestricted,
+        _ => unreachable!(), // validated above
+    };
+
+    let profile = puzzled_types::AgentProfile {
+        name: name.clone(),
+        description,
+        extends: extends_val,
+        filesystem: puzzled_types::FilesystemRules {
+            read_allowlist: vec![
+                "/usr/bin".into(),
+                "/usr/share".into(),
+                "/usr/lib".into(),
+                "/usr/lib64".into(),
+                "/proc/self".into(),
+                "/dev/null".into(),
+                "/dev/urandom".into(),
+                "/etc/localtime".into(),
+            ],
+            write_allowlist: write_dirs.iter().map(PathBuf::from).collect(),
+            denylist: vec![
+                "/etc/shadow".into(),
+                "/etc/gshadow".into(),
+                "/etc/ssh".into(),
+            ],
+            read_denylist: vec![],
+            write_denylist: vec![],
+        },
+        exec_allowlist: vec![
+            "/usr/bin/python3".into(),
+            "/usr/bin/cat".into(),
+            "/usr/bin/ls".into(),
+        ],
+        exec_denylist: vec![
+            "nsenter".into(),
+            "unshare".into(),
+            "chroot".into(),
+            "mount".into(),
+            "strace".into(),
+            "gdb".into(),
+            "su".into(),
+            "sudo".into(),
+        ],
+        capabilities: vec![],
+        resource_limits: puzzled_types::ResourceLimits {
+            memory_bytes: memory_mb * 1024 * 1024,
+            cpu_shares: 100,
+            io_weight: 100,
+            max_pids,
+            storage_quota_mb: storage_mb,
+            inode_quota: 10000,
+            ..Default::default()
+        },
+        network: puzzled_types::NetworkConfig {
+            mode: network_mode,
+            allowed_domains,
+            data_residency: None,
+            dlp_rules_path: None,
+        },
+        behavioral: puzzled_types::BehavioralConfig {
+            max_deletions: 50,
+            max_reads_per_minute: 1000,
+            credential_access_alert: false,
+            phantom_token_prefixes: vec![],
+        },
+        fail_mode: puzzled_types::FailMode::FailClosed,
+        enforcement: Default::default(),
+        seccomp_mode: puzzled_types::SeccompMode::Permissive,
+        allow_symlinks: false,
+        allow_exec_overlay: false,
+        credentials: None,
+    };
+
+    let y = serde_yaml::to_string(&profile).context("serializing profile to YAML")?;
 
     if let Some(path) = output_path {
         if Path::new(path).exists() {
@@ -2208,6 +2295,47 @@ fn cmd_profile_init(
         print!("{y}");
     }
     Ok(())
+}
+
+/// Escape a string for embedding in a Rego double-quoted string literal.
+fn escape_rego_string(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Escape regex metacharacters in user input, convert glob `*` to `.*`, and anchor.
+fn escape_glob_to_regex(pattern: &str) -> String {
+    let mut result = String::with_capacity(pattern.len() + 4);
+    result.push('^');
+    for ch in pattern.chars() {
+        match ch {
+            '*' => result.push_str(".*"),
+            '.' | '+' | '?' | '^' | '$' | '{' | '}' | '(' | ')' | '|' | '[' | ']' => {
+                result.push('\\');
+                result.push(ch);
+            }
+            '\\' => result.push_str("\\\\"),
+            _ => result.push(ch),
+        }
+    }
+    result.push('$');
+    result
+}
+
+/// Escape a file extension for use in a regex pattern (anchored at end).
+fn escape_ext_to_regex(ext: &str) -> String {
+    let mut result = String::with_capacity(ext.len() + 4);
+    for ch in ext.chars() {
+        match ch {
+            '.' | '+' | '?' | '^' | '$' | '{' | '}' | '(' | ')' | '|' | '[' | ']' | '*' => {
+                result.push('\\');
+                result.push(ch);
+            }
+            '\\' => result.push_str("\\\\"),
+            _ => result.push(ch),
+        }
+    }
+    result.push('$');
+    result
 }
 
 /// Test a policy against a sample changeset.
@@ -2251,7 +2379,8 @@ fn cmd_policy_add_rule(
 
     if let Some(pattern) = deny_path {
         let rule_name = sanitize_rule_name(pattern);
-        let msg = message.unwrap_or("path matches denied pattern");
+        let msg = escape_rego_string(message.unwrap_or("path matches denied pattern"));
+        let regex = escape_rego_string(&escape_glob_to_regex(pattern));
         rules += &format!(
             r#"
 violations[v] if {{
@@ -2264,7 +2393,7 @@ violations[v] if {{
     }}
 }}
 "#,
-            regex = pattern.replace('*', ".*"),
+            regex = regex,
             rule_name = rule_name,
             msg = msg,
             severity = severity,
@@ -2272,7 +2401,7 @@ violations[v] if {{
     }
 
     if let Some(max_size) = max_file_size {
-        let msg = message.unwrap_or("file exceeds maximum size");
+        let msg = escape_rego_string(message.unwrap_or("file exceeds maximum size"));
         rules += &format!(
             r#"
 violations[v] if {{
@@ -2298,8 +2427,9 @@ violations[v] if {{
             .filter(|s| !s.is_empty())
         {
             let rule_name = sanitize_rule_name(ext);
-            let regex = format!("{}$", ext.replace('.', "\\."));
-            let msg = message.unwrap_or("file has denied extension");
+            let regex = escape_rego_string(&escape_ext_to_regex(ext));
+            let msg = escape_rego_string(message.unwrap_or("file has denied extension"));
+            let ext_escaped = escape_rego_string(ext);
             rules += &format!(
                 r#"
 violations[v] if {{
@@ -2314,7 +2444,7 @@ violations[v] if {{
 "#,
                 regex = regex,
                 rule_name = rule_name,
-                ext = ext,
+                ext = ext_escaped,
                 msg = msg,
                 severity = severity,
             );
@@ -2322,7 +2452,7 @@ violations[v] if {{
     }
 
     if let Some(max) = max_files {
-        let msg = message.unwrap_or("changeset exceeds maximum file count");
+        let msg = escape_rego_string(message.unwrap_or("changeset exceeds maximum file count"));
         rules += &format!(
             r#"
 violations[v] if {{

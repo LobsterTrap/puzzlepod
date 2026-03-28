@@ -610,84 +610,83 @@ Agent containment profiles are defined as YAML files loaded by puzzled:
 
 ```yaml
 # /etc/puzzled/profiles/code-assistant.yaml
-profile: code-assistant
-version: 1
+name: code-assistant
+description: Profile for code assistant agents
 extends: standard              # optional, inherit from parent profile
 
 filesystem:
-  read_allow:
-    - /home/{{user}}/projects/{{project}}/**
-    - /usr/lib/**
-    - /usr/share/**
+  read_allowlist:
+    - /home/{{user}}/projects/{{project}}
+    - /usr/lib
+    - /usr/share
     - /etc/localtime
     - /etc/resolv.conf
-    - /proc/self/**
+    - /proc/self
     - /dev/null
     - /dev/urandom
 
-  read_deny:
-    - /home/{{user}}/.ssh/**
-    - /home/{{user}}/.gnupg/**
-    - /home/{{user}}/.aws/**
+  read_denylist:
+    - /home/{{user}}/.ssh
+    - /home/{{user}}/.gnupg
+    - /home/{{user}}/.aws
     - /etc/shadow
     - /etc/gshadow
-    - /**/.*credentials*
-    - /**/.*secret*
-    - /**/.env
 
-  write_allow:
-    - /home/{{user}}/projects/{{project}}/**
-    - /tmp/agent-{{agent_id}}/**
+  write_allowlist:
+    - /home/{{user}}/projects/{{project}}
+    - /tmp/agent-{{agent_id}}
 
-  write_deny:
-    - /**/.git/hooks/**
-    - /etc/**
-    - /usr/**
+  write_denylist:
+    - /etc
+    - /usr
 
-process:
-  exec_allow:
-    - /usr/bin/python3*
-    - /usr/bin/node
-    - /usr/bin/git
-    - /usr/bin/grep
-    - /usr/bin/make
-    - /usr/bin/cargo
-    - /usr/bin/curl       # Allowed but network-gated
+  denylist:
+    - /etc/shadow
+    - /etc/gshadow
+    - /etc/ssh
 
-  exec_deny:
-    - /usr/bin/ssh
-    - /usr/bin/sudo
-    - /usr/bin/su
-    - /usr/bin/systemctl
-    - /usr/sbin/*
+exec_allowlist:
+  - /usr/bin/python3
+  - /usr/bin/node
+  - /usr/bin/git
+  - /usr/bin/grep
+  - /usr/bin/make
+  - /usr/bin/cargo
+  - /usr/bin/curl       # Allowed but network-gated
 
-  limits:
-    max_pids: 64
-    max_threads: 128
-    no_new_privileges: true
+exec_denylist:
+  - nsenter
+  - unshare
+  - chroot
+  - mount
+  - strace
+  - gdb
+  - su
+  - sudo
+
+resource_limits:
+  memory_bytes: 536870912
+  cpu_shares: 100
+  io_weight: 100
+  max_pids: 64
+  storage_quota_mb: 1024
+  inode_quota: 10000
 
 network:
-  mode: gated            # blocked, gated, monitored, unrestricted
+  mode: Gated            # Blocked, Gated, Monitored, Unrestricted
+  allowed_domains: []
 
-capabilities:
-  permitted:
-    - CAP_DAC_READ_SEARCH
-  dropped:
-    - CAP_SYS_ADMIN
-    - CAP_NET_ADMIN
-    - CAP_SYS_PTRACE
-    - CAP_SYS_MODULE
+behavioral:
+  max_deletions: 50
+  max_reads_per_minute: 1000
+  credential_access_alert: true
 
-fail_mode: fail_closed   # fail_closed, fail_silent, fail_operational, fail_safe_state
-
-enforcement:
-  require_quota: false
-  require_bpf_lsm: false
-  require_landlock: true
-  require_seccomp: true
+fail_mode: FailClosed    # FailClosed, FailSilent, FailOperational, FailSafeState
+seccomp_mode: Permissive # Permissive, Strict
+allow_symlinks: false
 ```
 
-**Profile inheritance:** When `extends` is specified, the child profile inherits all fields from the named parent. Child scalar fields always override. Vec fields (e.g., `exec_allow`, `read_allow`, `write_deny`) inherit the parent's values when the child's list is empty; a non-empty child list fully replaces the parent's. Inheritance depth is bounded at 3 levels. Circular inheritance is detected and rejected at profile load time.
+**Profile inheritance:** When `extends` is specified, the child profile inherits all fields from the named parent. Child scalar fields always override. Vec fields (e.g., `exec_allowlist`, `read_allowlist`, `write_denylist`) inherit the parent's values when the child's list is empty; a non-empty child list fully replaces the parent's. Inheritance depth is bounded at 3 levels. Circular inheritance is detected and rejected at profile load time. **Note:** Scalar security fields (`fail_mode`, `seccomp_mode`, `allow_symlinks`, `allow_exec_overlay`) use serde defaults when omitted in a child profile, not the parent's values — always set these explicitly.
 
 #### Enforcement Architecture
 
@@ -1677,56 +1676,59 @@ otel_service_name = puzzled
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "PuzzlePod Agent Profile",
   "type": "object",
-  "required": ["profile", "version", "filesystem", "process", "network"],
+  "required": ["name", "description", "filesystem", "exec_allowlist", "resource_limits", "network", "behavioral"],
   "properties": {
-    "profile": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" },
-    "version": { "type": "integer", "minimum": 1 },
-    "extends": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$", "description": "Parent profile name for inheritance (max depth 3, cycle detection enforced)" },
+    "name": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,62}$" },
+    "description": { "type": "string" },
+    "extends": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,62}$", "description": "Parent profile name for inheritance (max depth 3, cycle detection enforced)" },
     "filesystem": {
       "type": "object",
       "properties": {
-        "read_allow": { "type": "array", "items": { "type": "string" } },
-        "read_deny": { "type": "array", "items": { "type": "string" } },
-        "write_allow": { "type": "array", "items": { "type": "string" } },
-        "write_deny": { "type": "array", "items": { "type": "string" } }
+        "read_allowlist": { "type": "array", "items": { "type": "string" } },
+        "write_allowlist": { "type": "array", "items": { "type": "string" } },
+        "denylist": { "type": "array", "items": { "type": "string" } },
+        "read_denylist": { "type": "array", "items": { "type": "string" } },
+        "write_denylist": { "type": "array", "items": { "type": "string" } }
       }
     },
-    "process": {
+    "exec_allowlist": { "type": "array", "items": { "type": "string" } },
+    "exec_denylist": { "type": "array", "items": { "type": "string" } },
+    "resource_limits": {
       "type": "object",
+      "required": ["memory_bytes", "cpu_shares", "io_weight", "max_pids", "storage_quota_mb", "inode_quota"],
       "properties": {
-        "exec_allow": { "type": "array", "items": { "type": "string" } },
-        "exec_deny": { "type": "array", "items": { "type": "string" } },
-        "limits": {
-          "type": "object",
-          "properties": {
-            "max_pids": { "type": "integer" },
-            "no_new_privileges": { "type": "boolean" }
-          }
-        }
+        "memory_bytes": { "type": "integer" },
+        "cpu_shares": { "type": "integer" },
+        "io_weight": { "type": "integer" },
+        "max_pids": { "type": "integer" },
+        "storage_quota_mb": { "type": "integer" },
+        "inode_quota": { "type": "integer" }
       }
     },
     "network": {
       "type": "object",
       "properties": {
-        "mode": { "type": "string", "enum": ["blocked", "gated", "monitored", "unrestricted"] },
-        "read_allow": { "type": "array", "items": { "type": "string" } },
-        "write_allow": { "type": "array", "items": { "type": "string" } },
-        "deny": { "type": "array", "items": { "type": "string" } }
+        "mode": { "type": "string", "enum": ["Blocked", "Gated", "Monitored", "Unrestricted"] },
+        "allowed_domains": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "behavioral": {
+      "type": "object",
+      "properties": {
+        "max_deletions": { "type": "integer" },
+        "max_reads_per_minute": { "type": "integer" },
+        "credential_access_alert": { "type": "boolean" }
+      }
+    },
+    "fail_mode": { "type": "string", "enum": ["FailClosed", "FailSilent", "FailOperational", "FailSafeState"] },
+    "seccomp_mode": { "type": "string", "enum": ["Permissive", "Strict"] },
+    "allow_symlinks": { "type": "boolean" },
+    "allow_exec_overlay": { "type": "boolean" },
     "credentials": {
       "type": "object",
       "properties": {
         "secrets": { "type": "array" },
         "proxy": { "type": "object" }
-      }
-    },
-    "mcp": {
-      "type": "object",
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "policy_mode": { "type": "string", "enum": ["enforce", "audit", "disabled"] },
-        "servers": { "type": "array" }
       }
     }
   }
