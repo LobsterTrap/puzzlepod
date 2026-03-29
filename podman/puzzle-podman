@@ -608,15 +608,28 @@ if PROVISION_RESULT=$($PUZZLECTL credential provision "$BRANCH_ID" 2>/dev/null);
         CRED_PROXY_ARGS+=(--env "PUZZLEPOD_PROXY_GATEWAY=${GATEWAY}")
         CRED_PROXY_ARGS+=(--env "PUZZLEPOD_PROXY_PORT=${PROXY_PORT}")
 
-        # Extract phantom token env vars from provisioning result
-        # Format: {"env_vars": [{"env_var": "API_KEY", "phantom_token": "pt_..."}]}
-        while IFS= read -r line; do
-            ENV_VAR=$(echo "$line" | grep -o '"env_var":"[^"]*"' | cut -d'"' -f4 || true)
-            PHANTOM=$(echo "$line" | grep -o '"phantom_token":"[^"]*"' | cut -d'"' -f4 || true)
+        # Extract phantom token env vars from provisioning result.
+        # Prefer the explicit phantom_env_vars map over brittle regex parsing
+        # of the env_vars array.
+        while IFS='=' read -r ENV_VAR PHANTOM; do
             if [ -n "$ENV_VAR" ] && [ -n "$PHANTOM" ]; then
                 CRED_PROXY_ARGS+=(--env "${ENV_VAR}=${PHANTOM}")
             fi
-        done < <(echo "$PROVISION_RESULT" | grep -o '{"env_var":"[^}]*}' || true)
+        done < <(
+            python3 - "$PROVISION_RESULT" <<'PY'
+import json
+import sys
+
+try:
+    payload = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(0)
+
+for env_var, phantom in payload.get("phantom_env_vars", {}).items():
+    if env_var and phantom:
+        print(f"{env_var}={phantom}")
+PY
+        )
 
         # CA cert bind-mount (if file exists)
         CA_CERT_PATH="${XDG_RUNTIME_DIR:-/run}/puzzlepod/branches/${BRANCH_ID}/proxy-ca.pem"

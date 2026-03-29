@@ -1923,10 +1923,28 @@ impl BranchManager {
     fn cleanup_branch_resources(&self, id: &BranchId) {
         // §3.4: Revoke phantom tokens for this branch
         if let Some(ref ptm) = self.phantom_token_manager {
-            // Must guarantee revocation — use blocking write to avoid silently skipping
-            let mut ptm_guard = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(ptm.write())
-            });
+            // Must guarantee revocation. Rollback may run on the zbus executor
+            // thread where no Tokio reactor is active, so Handle::current()
+            // would panic there. Use the current runtime when available and
+            // otherwise fall back to a temporary current-thread runtime.
+            let mut ptm_guard = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                tokio::task::block_in_place(|| handle.block_on(ptm.write()))
+            } else {
+                match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt.block_on(ptm.write()),
+                    Err(e) => {
+                        tracing::warn!(
+                            branch = %id,
+                            error = %e,
+                            "§3.4: failed to create temporary runtime for phantom token revocation"
+                        );
+                        return;
+                    }
+                }
+            };
             ptm_guard.revoke_branch(id);
             tracing::debug!(branch = %id, "§3.4: phantom tokens revoked for branch");
         }

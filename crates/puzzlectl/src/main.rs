@@ -572,6 +572,11 @@ enum CredentialAction {
     },
     /// List credential metadata
     List,
+    /// Provision phantom-token credentials for a branch
+    Provision {
+        /// Branch ID to provision credentials for
+        branch_id: String,
+    },
     /// Test credential injection for a domain and profile
     Test {
         /// Target domain to test
@@ -1227,9 +1232,9 @@ async fn main() -> Result<()> {
                         let value = zeroize::Zeroizing::new(value.trim_end().to_string());
 
                         let config_json = serde_json::json!({
-                            "inject": inject,
-                            "profiles": profiles,
-                            "domains": domains,
+                            "injection": inject,
+                            "allowed_profiles": profiles,
+                            "target_domains": domains,
                         })
                         .to_string();
 
@@ -1342,9 +1347,16 @@ async fn main() -> Result<()> {
                                                 .and_then(|v| v.as_str())
                                                 .unwrap_or("?");
                                             let domains = cred
-                                                .get("domains")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("");
+                                                .get("target_domains")
+                                                .and_then(|v| v.as_array())
+                                                .map(|domains| {
+                                                    domains
+                                                        .iter()
+                                                        .filter_map(|v| v.as_str())
+                                                        .collect::<Vec<_>>()
+                                                        .join(",")
+                                                })
+                                                .unwrap_or_default();
                                             println!("  {name}  type={ctype}  domains={domains}");
                                         }
                                     }
@@ -1353,10 +1365,25 @@ async fn main() -> Result<()> {
                             }
                         }
                     }
+                    CredentialAction::Provision { branch_id } => {
+                        let result = client.provision_credentials(&branch_id).await?;
+                        match cli.output {
+                            OutputFormat::Json => println!(
+                                "{}",
+                                serde_json::to_string_pretty(
+                                    &serde_json::from_str::<serde_json::Value>(&result)
+                                        .unwrap_or(serde_json::Value::String(result.clone()))
+                                )
+                                .unwrap_or(result)
+                            ),
+                            OutputFormat::Text => println!("{result}"),
+                        }
+                    }
                     CredentialAction::Test { domain, profile } => {
-                        // Test credential injection by listing credentials for the profile
-                        // and checking if any match the domain
-                        let result = client.list_credentials(&profile).await?;
+                        // List all visible credentials, then filter client-side for the
+                        // requested profile/domain. The daemon's ListCredentials method
+                        // accepts a branch ID, not a raw profile name.
+                        let result = client.list_credentials("").await?;
                         let parsed: Result<Vec<serde_json::Value>, _> =
                             serde_json::from_str(&result);
                         match parsed {
@@ -1364,11 +1391,23 @@ async fn main() -> Result<()> {
                                 let matching: Vec<_> = creds
                                     .iter()
                                     .filter(|c| {
-                                        c.get("domains")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("")
-                                            .split(',')
-                                            .any(|d| d.trim() == domain)
+                                        let allowed_profiles = c
+                                            .get("allowed_profiles")
+                                            .and_then(|v| v.as_array())
+                                            .map(|profiles| {
+                                                profiles.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
+                                            })
+                                            .unwrap_or_default();
+                                        let domains = c
+                                            .get("target_domains")
+                                            .and_then(|v| v.as_array())
+                                            .map(|domains| {
+                                                domains.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
+                                            })
+                                            .unwrap_or_default();
+                                        (allowed_profiles.is_empty()
+                                            || allowed_profiles.iter().any(|p| *p == "*" || *p == profile))
+                                            && domains.iter().any(|d| *d == domain)
                                     })
                                     .collect();
                                 match cli.output {
@@ -1403,9 +1442,13 @@ async fn main() -> Result<()> {
                                                     .and_then(|v| v.as_str())
                                                     .unwrap_or("?");
                                                 let inject = cred
-                                                    .get("inject")
-                                                    .and_then(|v| v.as_str())
-                                                    .unwrap_or("?");
+                                                    .get("injection")
+                                                    .map(|v| {
+                                                        v.as_str()
+                                                            .map(ToString::to_string)
+                                                            .unwrap_or_else(|| v.to_string())
+                                                    })
+                                                    .unwrap_or_else(|| "?".to_string());
                                                 println!("  {name} (inject: {inject})");
                                             }
                                         }
@@ -1528,9 +1571,9 @@ async fn main() -> Result<()> {
                         } else {
                             // Default: store via D-Bus (systemd-creds or backend encryption)
                             let config = serde_json::json!({
-                                "profiles": profiles,
-                                "domains": domains,
-                                "inject": "header",
+                                "allowed_profiles": profiles,
+                                "target_domains": domains,
+                                "injection": "header",
                             });
                             client
                                 .store_credential(
