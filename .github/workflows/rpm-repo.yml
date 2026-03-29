@@ -59,6 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ${{ vars.CI_IMAGE || 'ghcr.io/lobstertrap/puzzlepod/ci:fedora42' }}
+      options: --privileged
     strategy:
       fail-fast: false
       matrix:
@@ -153,6 +154,7 @@ jobs:
           distro: fedora_latest
           githubToken: ${{ github.token }}
           dockerRunArgs: |
+            --privileged
             --volume "${{ github.workspace }}/srpms:/srpms"
             --volume "${{ github.workspace }}/rpms:/rpms"
           install: |
