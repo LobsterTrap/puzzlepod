@@ -121,12 +121,15 @@ jobs:
           path: repo/
 
   # ---------------------------------------------------------------------------
-  # Stage 2b: Build aarch64 binary RPMs per target (QEMU emulation)
+  # Stage 2b: Build aarch64 binary RPMs per target (native ARM64 runner)
   # ---------------------------------------------------------------------------
   build-rpms-aarch64:
     name: Build RPMs (${{ matrix.target }})
     needs: build-source
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: fedora:42
+      options: --privileged
     strategy:
       fail-fast: false
       matrix:
@@ -141,60 +144,54 @@ jobs:
             mock_root: centos-stream+epel-10-aarch64
             repo_path: repo/epel/10/aarch64
     steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False mock createrepo_c
+          usermod -a -G mock root
+
       - name: Download SRPMs
         uses: actions/download-artifact@v4
         with:
           name: srpms
           path: srpms/
 
-      - name: Build RPMs and prepare repo (aarch64 QEMU)
-        uses: uraimo/run-on-arch-action@v3
-        with:
-          arch: aarch64
-          distro: fedora_latest
-          githubToken: ${{ github.token }}
-          dockerRunArgs: |
-            --privileged
-            --volume "${{ github.workspace }}/srpms:/srpms"
-            --volume "${{ github.workspace }}/output:/output"
-          install: |
-            dnf install -y --setopt=install_weak_deps=False mock createrepo_c
-            usermod -a -G mock root
-          run: |
-            mkdir -p /rpms
-            FAILED=""
-            for srpm in /srpms/*.src.rpm; do
-              echo "--- mock: $srpm ---"
-              if mock -r ${{ matrix.mock_root }} --enable-network --isolation=simple \
-                --rebuild "$srpm" --resultdir=/rpms/; then
-                echo "--- OK: $srpm ---"
-              else
-                echo "--- FAILED: $srpm ---"
-                FAILED="$FAILED $srpm"
-              fi
-            done
-            if [ -n "$FAILED" ]; then
-              echo "=== FAILED builds ===$FAILED"
-              exit 1
+      - name: Build RPMs via mock
+        run: |
+          mkdir -p rpms
+          FAILED=""
+          for srpm in srpms/*.src.rpm; do
+            echo "--- mock: $srpm ---"
+            if mock -r ${{ matrix.mock_root }} --enable-network --isolation=simple \
+              --rebuild "$srpm" --resultdir=rpms/; then
+              echo "--- OK: $srpm ---"
+            else
+              echo "--- FAILED: $srpm ---"
+              FAILED="$FAILED $srpm"
             fi
+          done
+          if [ -n "$FAILED" ]; then
+            echo "=== FAILED builds ===$FAILED"
+            exit 1
+          fi
 
-            # Prepare repo directory inside the container (createrepo_c is here)
-            mkdir -p /output/${{ matrix.repo_path }}
-            cp /rpms/*.noarch.rpm /rpms/*.aarch64.rpm \
-              /output/${{ matrix.repo_path }}/ 2>/dev/null || true
-            if ! ls /output/${{ matrix.repo_path }}/*.rpm >/dev/null 2>&1; then
-              echo "ERROR: No RPMs found for repo"
-              exit 1
-            fi
-            rm -f /output/${{ matrix.repo_path }}/*-debuginfo-* \
-                  /output/${{ matrix.repo_path }}/*-debugsource-*
-            createrepo_c /output/${{ matrix.repo_path }}
+      - name: Prepare repo directory
+        run: |
+          mkdir -p ${{ matrix.repo_path }}
+          cp rpms/*.noarch.rpm rpms/*.aarch64.rpm \
+            ${{ matrix.repo_path }}/ 2>/dev/null || true
+          if ! ls ${{ matrix.repo_path }}/*.rpm >/dev/null 2>&1; then
+            echo "ERROR: No RPMs found for repo"
+            exit 1
+          fi
+          rm -f ${{ matrix.repo_path }}/*-debuginfo-* \
+                ${{ matrix.repo_path }}/*-debugsource-*
+          createrepo_c ${{ matrix.repo_path }}
 
       - name: Upload repo artifact
         uses: actions/upload-artifact@v4
         with:
           name: repo-${{ matrix.target }}
-          path: output/repo/
+          path: repo/
 
   # ---------------------------------------------------------------------------
   # Stage 3: Assemble and deploy to GitHub Pages
