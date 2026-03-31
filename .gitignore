@@ -10,3 +10,4 @@ packaging/source-tarball/
 docs/reports/
 docs/prd_validation_summary.md
 docs/PuzzlePod_Strategy.md
+.cursor/
