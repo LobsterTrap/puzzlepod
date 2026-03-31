@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["DEFAULT_MIN_SAMPLES","DEFAULT_THRESHOLD_SIGMA","DEFAULT_WINDOW_SECS","MAX_TRUST_HISTORY_BYTES","PRUNE_INTERVAL"],"fn":["default_scoring_rules"],"struct":["BehavioralBaseline","DailyDeltaTracker","MetricWindow","TrustManager"],"type":["Result"]};
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_MIN_SAMPLES","DEFAULT_THRESHOLD_SIGMA","DEFAULT_WINDOW_SECS","MAX_TRUST_HISTORY_BYTES","PRUNE_INTERVAL"],"fn":["default_scoring_rules"],"struct":["BehavioralBaseline","DailyDeltaTracker","MetricWindow","TrustManager"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["attestation","audit","audit_store","branch","budget","commit","config","conflict","dbus","diff","error","identity","ima","landlock_rules","metrics","policy","profile","provenance","sandbox","seccomp_handler","seccomp_profile","trust","wal"]};
+window.SIDEBAR_ITEMS = {"mod":["attestation","audit","audit_store","branch","budget","commit","config","conflict","dbus","diff","error","identity","ima","landlock_rules","metrics","policy","profile","provenance","sandbox","seccomp_handler","seccomp_profile","sync_util","trust","wal"]};

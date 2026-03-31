@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["CgroupManager"]};
+window.SIDEBAR_ITEMS = {"fn":["cgroup_v2_fs_path_for_pid"],"struct":["CgroupManager"]};

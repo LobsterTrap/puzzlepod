@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["LandlockBuilder"]};
+window.SIDEBAR_ITEMS = {"fn":["log_read_allowlist_parent_of_read_denylist_conflicts"],"struct":["LandlockBuilder"]};

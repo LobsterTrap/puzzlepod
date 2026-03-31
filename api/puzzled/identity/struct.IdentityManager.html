@@ -86,7 +86,7 @@ optional governance and containment extensions.</p>
     policy_version: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     attestation_chain_hash: <a class="enum" href="https://doc.rust-lang.org/1.94.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;&amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>&gt;,
     attestation_chain_length: <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.u32.html">u32</a>,
-    containment: <a class="enum" href="https://doc.rust-lang.org/1.94.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="../../puzzled_types/struct.ContainmentClaims.html" title="struct puzzled_types::ContainmentClaims">ContainmentClaims</a>&gt;,
+    containment: <a class="enum" href="https://doc.rust-lang.org/1.94.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="../../puzzled_types/identity/struct.ContainmentClaims.html" title="struct puzzled_types::identity::ContainmentClaims">ContainmentClaims</a>&gt;,
 ) -&gt; <a class="type" href="../error/type.Result.html" title="type puzzled::error::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.94.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;</h4></section></summary><div class="docblock"><p>Issue a JWT-SVID with explicit containment claims.</p>
 <p>When <code>containment</code> is <code>Some</code>, it is included in the token regardless
 of the <code>include_containment_claims</code> flag.  When <code>None</code>, containment
@@ -96,7 +96,7 @@ caller provides data — no hardcoded defaults are emitted.</p>
     &amp;self,
     token: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     expected_audience: <a class="enum" href="https://doc.rust-lang.org/1.94.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;&amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>&gt;,
-) -&gt; <a class="type" href="../error/type.Result.html" title="type puzzled::error::Result">Result</a>&lt;<a class="struct" href="../../puzzled_types/struct.GovernanceClaims.html" title="struct puzzled_types::GovernanceClaims">GovernanceClaims</a>&gt;</h4></section></summary><div class="docblock"><p>Verify a JWT-SVID and return the decoded governance claims.</p>
+) -&gt; <a class="type" href="../error/type.Result.html" title="type puzzled::error::Result">Result</a>&lt;<a class="struct" href="../../puzzled_types/identity/struct.GovernanceClaims.html" title="struct puzzled_types::identity::GovernanceClaims">GovernanceClaims</a>&gt;</h4></section></summary><div class="docblock"><p>Verify a JWT-SVID and return the decoded governance claims.</p>
 <p>Checks Ed25519 signature validity, token expiration, and optionally
 audience membership per SPIFFE JWT-SVID spec (Section 3).</p>
 <p>When <code>expected_audience</code> is <code>Some</code>, the token’s <code>aud</code> claim must

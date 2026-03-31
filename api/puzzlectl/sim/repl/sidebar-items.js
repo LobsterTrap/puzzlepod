@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["PROMPT"],"fn":["cleanup","discover_profile_names","engine_storage_base","handle_command","parse_run_flags","print_help","print_scenario_summary","run_repl"]};
+window.SIDEBAR_ITEMS = {"constant":["PROMPT"],"fn":["cleanup","discover_profile_names","handle_command","parse_run_flags","print_help","print_scenario_summary","run_repl"]};

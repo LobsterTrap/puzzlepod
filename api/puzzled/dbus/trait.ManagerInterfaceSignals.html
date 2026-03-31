@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Trait providing all signal emission methods for `ManagerInterface`."><title>ManagerInterfaceSignals in puzzled::dbus - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-77263533.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="puzzled" data-themes="" data-resource-suffix="" data-rustdoc-version="1.94.1 (e408947bf 2026-03-25)" data-channel="1.94.1" data-search-js="search-9e2438ea.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-7bab91a1.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-ffcac47a.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc trait"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">ManagerInterfaceSignals</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../puzzled/index.html">puzzled</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Manager<wbr>Interface<wbr>Signals</a></h2><h3><a href="#required-methods">Required Methods</a></h3><ul class="block"><li><a href="#tymethod.agent_timeout" title="agent_timeout">agent_timeout</a></li><li><a href="#tymethod.behavioral_trigger" title="behavioral_trigger">behavioral_trigger</a></li><li><a href="#tymethod.branch_committed" title="branch_committed">branch_committed</a></li><li><a href="#tymethod.branch_created" title="branch_created">branch_created</a></li><li><a href="#tymethod.branch_event" title="branch_event">branch_event</a></li><li><a href="#tymethod.branch_rolled_back" title="branch_rolled_back">branch_rolled_back</a></li><li><a href="#tymethod.credential_proxy_error" title="credential_proxy_error">credential_proxy_error</a></li><li><a href="#tymethod.credential_resolved" title="credential_resolved">credential_resolved</a></li><li><a href="#tymethod.credential_rotated" title="credential_rotated">credential_rotated</a></li><li><a href="#tymethod.dlp_violation" title="dlp_violation">dlp_violation</a></li><li><a href="#tymethod.governance_review_pending" title="governance_review_pending">governance_review_pending</a></li><li><a href="#tymethod.policy_violation" title="policy_violation">policy_violation</a></li><li><a href="#tymethod.trust_transition" title="trust_transition">trust_transition</a></li></ul><h3><a href="#foreign-impls">Implementations on Foreign Types</a></h3><ul class="block"><li><a href="#impl-ManagerInterfaceSignals-for-InterfaceRef%3CManagerInterface%3E" title="InterfaceRef&#60;ManagerInterface&#62;">InterfaceRef&#60;ManagerInterface&#62;</a></li><li><a href="#impl-ManagerInterfaceSignals-for-SignalEmitter%3C'_%3E" title="SignalEmitter&#60;&#39;_&#62;">SignalEmitter&#60;&#39;_&#62;</a></li></ul><h3><a href="#implementors">Implementors</a></h3></section><div id="rustdoc-modnav"><h2><a href="index.html">In puzzled::<wbr>dbus</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">puzzled</a>::<wbr><a href="index.html">dbus</a></div><h1>Trait <span class="trait">Manager<wbr>Interface<wbr>Signals</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/puzzled/dbus.rs.html#149">Source</a> </span></div><pre class="rust item-decl"><code>pub trait ManagerInterfaceSignals {
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Trait providing all signal emission methods for `ManagerInterface`."><title>ManagerInterfaceSignals in puzzled::dbus - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-77263533.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="puzzled" data-themes="" data-resource-suffix="" data-rustdoc-version="1.94.1 (e408947bf 2026-03-25)" data-channel="1.94.1" data-search-js="search-9e2438ea.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-7bab91a1.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-ffcac47a.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc trait"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">ManagerInterfaceSignals</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../puzzled/index.html">puzzled</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Manager<wbr>Interface<wbr>Signals</a></h2><h3><a href="#required-methods">Required Methods</a></h3><ul class="block"><li><a href="#tymethod.agent_timeout" title="agent_timeout">agent_timeout</a></li><li><a href="#tymethod.behavioral_trigger" title="behavioral_trigger">behavioral_trigger</a></li><li><a href="#tymethod.branch_committed" title="branch_committed">branch_committed</a></li><li><a href="#tymethod.branch_created" title="branch_created">branch_created</a></li><li><a href="#tymethod.branch_event" title="branch_event">branch_event</a></li><li><a href="#tymethod.branch_rolled_back" title="branch_rolled_back">branch_rolled_back</a></li><li><a href="#tymethod.credential_proxy_error" title="credential_proxy_error">credential_proxy_error</a></li><li><a href="#tymethod.credential_resolved" title="credential_resolved">credential_resolved</a></li><li><a href="#tymethod.credential_rotated" title="credential_rotated">credential_rotated</a></li><li><a href="#tymethod.dlp_violation" title="dlp_violation">dlp_violation</a></li><li><a href="#tymethod.governance_review_pending" title="governance_review_pending">governance_review_pending</a></li><li><a href="#tymethod.policy_violation" title="policy_violation">policy_violation</a></li><li><a href="#tymethod.trust_transition" title="trust_transition">trust_transition</a></li></ul><h3><a href="#foreign-impls">Implementations on Foreign Types</a></h3><ul class="block"><li><a href="#impl-ManagerInterfaceSignals-for-InterfaceRef%3CManagerInterface%3E" title="InterfaceRef&#60;ManagerInterface&#62;">InterfaceRef&#60;ManagerInterface&#62;</a></li><li><a href="#impl-ManagerInterfaceSignals-for-SignalEmitter%3C'_%3E" title="SignalEmitter&#60;&#39;_&#62;">SignalEmitter&#60;&#39;_&#62;</a></li></ul><h3><a href="#implementors">Implementors</a></h3></section><div id="rustdoc-modnav"><h2><a href="index.html">In puzzled::<wbr>dbus</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">puzzled</a>::<wbr><a href="index.html">dbus</a></div><h1>Trait <span class="trait">Manager<wbr>Interface<wbr>Signals</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a> </span></div><pre class="rust item-decl"><code>pub trait ManagerInterfaceSignals {
 <details class="toggle type-contents-toggle"><summary class="hideme"><span>Show 13 methods</span></summary>    // Required methods
     fn <a href="#tymethod.trust_transition" class="fn">trust_transition</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
         &amp;'life0 self,
@@ -143,7 +143,7 @@
              'life2: 'async_trait,
              'life3: 'async_trait</span>;
 </details>}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Trait providing all signal emission methods for <code>ManagerInterface</code>.</p>
-</div></details><h2 id="required-methods" class="section-header">Required Methods<a href="#required-methods" class="anchor">§</a></h2><div class="methods"><section id="tymethod.trust_transition" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.trust_transition" class="fn">trust_transition</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+</div></details><h2 id="required-methods" class="section-header">Required Methods<a href="#required-methods" class="anchor">§</a></h2><div class="methods"><section id="tymethod.trust_transition" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.trust_transition" class="fn">trust_transition</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     uid: <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.u32.html">u32</a>,
     old_level: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -155,7 +155,7 @@
     'life0: 'async_trait,
     'life1: 'async_trait,
     'life2: 'async_trait,
-    'life3: 'async_trait,</div></h4></section><section id="tymethod.branch_created" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.branch_created" class="fn">branch_created</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+    'life3: 'async_trait,</div></h4></section><section id="tymethod.branch_created" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.branch_created" class="fn">branch_created</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     profile: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -163,7 +163,7 @@
     Self: 'async_trait,
     'life0: 'async_trait,
     'life1: 'async_trait,
-    'life2: 'async_trait,</div></h4></section><section id="tymethod.branch_committed" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.branch_committed" class="fn">branch_committed</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+    'life2: 'async_trait,</div></h4></section><section id="tymethod.branch_committed" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.branch_committed" class="fn">branch_committed</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     changeset_hash: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -173,7 +173,7 @@
     'life0: 'async_trait,
     'life1: 'async_trait,
     'life2: 'async_trait,
-    'life3: 'async_trait,</div></h4></section><section id="tymethod.branch_rolled_back" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.branch_rolled_back" class="fn">branch_rolled_back</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+    'life3: 'async_trait,</div></h4></section><section id="tymethod.branch_rolled_back" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.branch_rolled_back" class="fn">branch_rolled_back</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     reason: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -181,7 +181,7 @@
     Self: 'async_trait,
     'life0: 'async_trait,
     'life1: 'async_trait,
-    'life2: 'async_trait,</div></h4></section><section id="tymethod.policy_violation" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.policy_violation" class="fn">policy_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'life5, 'async_trait&gt;(
+    'life2: 'async_trait,</div></h4></section><section id="tymethod.policy_violation" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.policy_violation" class="fn">policy_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'life5, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     violations_json: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -195,7 +195,7 @@
     'life2: 'async_trait,
     'life3: 'async_trait,
     'life4: 'async_trait,
-    'life5: 'async_trait,</div></h4></section><section id="tymethod.behavioral_trigger" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.behavioral_trigger" class="fn">behavioral_trigger</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+    'life5: 'async_trait,</div></h4></section><section id="tymethod.behavioral_trigger" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.behavioral_trigger" class="fn">behavioral_trigger</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     trigger_json: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -203,14 +203,14 @@
     Self: 'async_trait,
     'life0: 'async_trait,
     'life1: 'async_trait,
-    'life2: 'async_trait,</div></h4></section><section id="tymethod.agent_timeout" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.agent_timeout" class="fn">agent_timeout</a>&lt;'life0, 'life1, 'async_trait&gt;(
+    'life2: 'async_trait,</div></h4></section><section id="tymethod.agent_timeout" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.agent_timeout" class="fn">agent_timeout</a>&lt;'life0, 'life1, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     timeout_duration_secs: <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.u64.html">u64</a>,
 ) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.94.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.94.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.94.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = Result&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.unit.html">()</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
     Self: 'async_trait,
     'life0: 'async_trait,
-    'life1: 'async_trait,</div></h4></section><section id="tymethod.governance_review_pending" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.governance_review_pending" class="fn">governance_review_pending</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+    'life1: 'async_trait,</div></h4></section><section id="tymethod.governance_review_pending" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.governance_review_pending" class="fn">governance_review_pending</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     diff_summary: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -218,7 +218,7 @@
     Self: 'async_trait,
     'life0: 'async_trait,
     'life1: 'async_trait,
-    'life2: 'async_trait,</div></h4></section><section id="tymethod.branch_event" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.branch_event" class="fn">branch_event</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+    'life2: 'async_trait,</div></h4></section><section id="tymethod.branch_event" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.branch_event" class="fn">branch_event</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     event_type: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -228,7 +228,7 @@
     'life0: 'async_trait,
     'life1: 'async_trait,
     'life2: 'async_trait,
-    'life3: 'async_trait,</div></h4></section><section id="tymethod.dlp_violation" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.dlp_violation" class="fn">dlp_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
+    'life3: 'async_trait,</div></h4></section><section id="tymethod.dlp_violation" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.dlp_violation" class="fn">dlp_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     rule_name: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -240,7 +240,7 @@
     'life1: 'async_trait,
     'life2: 'async_trait,
     'life3: 'async_trait,
-    'life4: 'async_trait,</div></h4></section><section id="tymethod.credential_rotated" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.credential_rotated" class="fn">credential_rotated</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+    'life4: 'async_trait,</div></h4></section><section id="tymethod.credential_rotated" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.credential_rotated" class="fn">credential_rotated</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     credential_name: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -250,7 +250,7 @@
     'life0: 'async_trait,
     'life1: 'async_trait,
     'life2: 'async_trait,
-    'life3: 'async_trait,</div></h4></section><section id="tymethod.credential_resolved" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.credential_resolved" class="fn">credential_resolved</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
+    'life3: 'async_trait,</div></h4></section><section id="tymethod.credential_resolved" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.credential_resolved" class="fn">credential_resolved</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     credential_name: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -262,7 +262,7 @@
     'life1: 'async_trait,
     'life2: 'async_trait,
     'life3: 'async_trait,
-    'life4: 'async_trait,</div></h4></section><section id="tymethod.credential_proxy_error" class="method"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><h4 class="code-header">fn <a href="#tymethod.credential_proxy_error" class="fn">credential_proxy_error</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+    'life4: 'async_trait,</div></h4></section><section id="tymethod.credential_proxy_error" class="method"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><h4 class="code-header">fn <a href="#tymethod.credential_proxy_error" class="fn">credential_proxy_error</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     error: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -272,7 +272,7 @@
     'life0: 'async_trait,
     'life1: 'async_trait,
     'life2: 'async_trait,
-    'life3: 'async_trait,</div></h4></section></div><h2 id="foreign-impls" class="section-header">Implementations on Foreign Types<a href="#foreign-impls" class="anchor">§</a></h2><details class="toggle implementors-toggle"><summary><section id="impl-ManagerInterfaceSignals-for-InterfaceRef%3CManagerInterface%3E" class="impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#impl-ManagerInterfaceSignals-for-InterfaceRef%3CManagerInterface%3E" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.ManagerInterfaceSignals.html" title="trait puzzled::dbus::ManagerInterfaceSignals">ManagerInterfaceSignals</a> for InterfaceRef&lt;<a class="struct" href="struct.ManagerInterface.html" title="struct puzzled::dbus::ManagerInterface">ManagerInterface</a>&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.trust_transition" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.trust_transition" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.trust_transition" class="fn">trust_transition</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+    'life3: 'async_trait,</div></h4></section></div><h2 id="foreign-impls" class="section-header">Implementations on Foreign Types<a href="#foreign-impls" class="anchor">§</a></h2><details class="toggle implementors-toggle"><summary><section id="impl-ManagerInterfaceSignals-for-InterfaceRef%3CManagerInterface%3E" class="impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#impl-ManagerInterfaceSignals-for-InterfaceRef%3CManagerInterface%3E" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.ManagerInterfaceSignals.html" title="trait puzzled::dbus::ManagerInterfaceSignals">ManagerInterfaceSignals</a> for InterfaceRef&lt;<a class="struct" href="struct.ManagerInterface.html" title="struct puzzled::dbus::ManagerInterface">ManagerInterface</a>&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.trust_transition" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.trust_transition" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.trust_transition" class="fn">trust_transition</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     uid: <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.u32.html">u32</a>,
     old_level: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -285,7 +285,7 @@
     'life1: 'async_trait,
     'life2: 'async_trait,
     'life3: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Emitted when a trust level transition occurs (§4.1).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_created" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.branch_created" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_created" class="fn">branch_created</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_created" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.branch_created" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_created" class="fn">branch_created</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     profile: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -295,7 +295,7 @@
     'life1: 'async_trait,
     'life2: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Emitted when a branch is created.
 M-db2: Includes profile information.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_committed" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.branch_committed" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_committed" class="fn">branch_committed</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_committed" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.branch_committed" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_committed" class="fn">branch_committed</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     changeset_hash: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -306,7 +306,7 @@ M-db2: Includes profile information.</p>
     'life1: 'async_trait,
     'life2: 'async_trait,
     'life3: 'async_trait,</div></h4></section></summary><div class="docblock"><p>M20: Emitted when a branch is committed. Enriched with changeset_hash and profile.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_rolled_back" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.branch_rolled_back" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_rolled_back" class="fn">branch_rolled_back</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_rolled_back" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.branch_rolled_back" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_rolled_back" class="fn">branch_rolled_back</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     reason: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -316,7 +316,7 @@ M-db2: Includes profile information.</p>
     'life1: 'async_trait,
     'life2: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Emitted when a branch is rolled back.
 L-db1: Includes reason parameter.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.policy_violation" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.policy_violation" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.policy_violation" class="fn">policy_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'life5, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.policy_violation" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.policy_violation" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.policy_violation" class="fn">policy_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'life5, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     violations_json: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -332,7 +332,7 @@ L-db1: Includes reason parameter.</p>
     'life4: 'async_trait,
     'life5: 'async_trait,</div></h4></section></summary><div class="docblock"><p>M20: Emitted when a policy violation is detected (branch rejected).
 Enriched with changeset_hash, reason, and profile.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.behavioral_trigger" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.behavioral_trigger" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.behavioral_trigger" class="fn">behavioral_trigger</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.behavioral_trigger" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.behavioral_trigger" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.behavioral_trigger" class="fn">behavioral_trigger</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     trigger_json: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -341,7 +341,7 @@ Enriched with changeset_hash, reason, and profile.</p>
     'life0: 'async_trait,
     'life1: 'async_trait,
     'life2: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Emitted when a behavioral trigger fires.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.agent_timeout" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.agent_timeout" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.agent_timeout" class="fn">agent_timeout</a>&lt;'life0, 'life1, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.agent_timeout" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.agent_timeout" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.agent_timeout" class="fn">agent_timeout</a>&lt;'life0, 'life1, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     timeout_duration_secs: <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.u64.html">u64</a>,
@@ -349,7 +349,7 @@ Enriched with changeset_hash, reason, and profile.</p>
     Self: 'async_trait,
     'life0: 'async_trait,
     'life1: 'async_trait,</div></h4></section></summary><div class="docblock"><p>H12: Emitted when an agent times out (watchdog expiry).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.governance_review_pending" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.governance_review_pending" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.governance_review_pending" class="fn">governance_review_pending</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.governance_review_pending" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.governance_review_pending" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.governance_review_pending" class="fn">governance_review_pending</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     diff_summary: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -360,7 +360,7 @@ Enriched with changeset_hash, reason, and profile.</p>
     'life2: 'async_trait,</div></h4></section></summary><div class="docblock"><p>H-10: Emitted when a branch enters GovernanceReview state and awaits
 human approval. <code>diff_summary</code> is a JSON string with file count and
 total bytes.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_event" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.branch_event" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_event" class="fn">branch_event</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_event" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.branch_event" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_event" class="fn">branch_event</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     event_type: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -371,7 +371,7 @@ total bytes.</p>
     'life1: 'async_trait,
     'life2: 'async_trait,
     'life3: 'async_trait,</div></h4></section></summary><div class="docblock"><p>M-db1: Generic branch event signal for extensible event notification.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.dlp_violation" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.dlp_violation" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.dlp_violation" class="fn">dlp_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.dlp_violation" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.dlp_violation" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.dlp_violation" class="fn">dlp_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     rule_name: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -384,7 +384,7 @@ total bytes.</p>
     'life2: 'async_trait,
     'life3: 'async_trait,
     'life4: 'async_trait,</div></h4></section></summary><div class="docblock"><p>§3.3: DLP violation detected — emitted when DLP blocks or quarantines a request.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_rotated" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.credential_rotated" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_rotated" class="fn">credential_rotated</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_rotated" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.credential_rotated" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_rotated" class="fn">credential_rotated</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     credential_name: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -395,7 +395,7 @@ total bytes.</p>
     'life1: 'async_trait,
     'life2: 'async_trait,
     'life3: 'async_trait,</div></h4></section></summary><div class="docblock"><p>§3.4 G20: Credential rotated — emitted when a credential value is refreshed.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_resolved" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.credential_resolved" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_resolved" class="fn">credential_resolved</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_resolved" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.credential_resolved" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_resolved" class="fn">credential_resolved</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     credential_name: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -408,7 +408,7 @@ total bytes.</p>
     'life2: 'async_trait,
     'life3: 'async_trait,
     'life4: 'async_trait,</div></h4></section></summary><div class="docblock"><p>§3.4 G20: Credential resolved — emitted when a phantom token is swapped for real value.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_proxy_error" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.credential_proxy_error" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_proxy_error" class="fn">credential_proxy_error</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_proxy_error" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.credential_proxy_error" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_proxy_error" class="fn">credential_proxy_error</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     error: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -419,7 +419,7 @@ total bytes.</p>
     'life1: 'async_trait,
     'life2: 'async_trait,
     'life3: 'async_trait,</div></h4></section></summary><div class="docblock"><p>§3.4 G20: Credential proxy error — emitted on proxy failures.</p>
-</div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-ManagerInterfaceSignals-for-SignalEmitter%3C'_%3E" class="impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#impl-ManagerInterfaceSignals-for-SignalEmitter%3C'_%3E" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.ManagerInterfaceSignals.html" title="trait puzzled::dbus::ManagerInterfaceSignals">ManagerInterfaceSignals</a> for SignalEmitter&lt;'_&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.trust_transition-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.trust_transition-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.trust_transition" class="fn">trust_transition</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+</div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-ManagerInterfaceSignals-for-SignalEmitter%3C'_%3E" class="impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#impl-ManagerInterfaceSignals-for-SignalEmitter%3C'_%3E" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.ManagerInterfaceSignals.html" title="trait puzzled::dbus::ManagerInterfaceSignals">ManagerInterfaceSignals</a> for SignalEmitter&lt;'_&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.trust_transition-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.trust_transition-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.trust_transition" class="fn">trust_transition</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     uid: <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.u32.html">u32</a>,
     old_level: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -432,7 +432,7 @@ total bytes.</p>
     'life1: 'async_trait,
     'life2: 'async_trait,
     'life3: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Emitted when a trust level transition occurs (§4.1).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_created-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.branch_created-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_created" class="fn">branch_created</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_created-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.branch_created-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_created" class="fn">branch_created</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     profile: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -442,7 +442,7 @@ total bytes.</p>
     'life1: 'async_trait,
     'life2: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Emitted when a branch is created.
 M-db2: Includes profile information.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_committed-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.branch_committed-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_committed" class="fn">branch_committed</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_committed-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.branch_committed-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_committed" class="fn">branch_committed</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     changeset_hash: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -453,7 +453,7 @@ M-db2: Includes profile information.</p>
     'life1: 'async_trait,
     'life2: 'async_trait,
     'life3: 'async_trait,</div></h4></section></summary><div class="docblock"><p>M20: Emitted when a branch is committed. Enriched with changeset_hash and profile.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_rolled_back-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.branch_rolled_back-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_rolled_back" class="fn">branch_rolled_back</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_rolled_back-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.branch_rolled_back-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_rolled_back" class="fn">branch_rolled_back</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     reason: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -463,7 +463,7 @@ M-db2: Includes profile information.</p>
     'life1: 'async_trait,
     'life2: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Emitted when a branch is rolled back.
 L-db1: Includes reason parameter.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.policy_violation-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.policy_violation-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.policy_violation" class="fn">policy_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'life5, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.policy_violation-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.policy_violation-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.policy_violation" class="fn">policy_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'life5, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     violations_json: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -479,7 +479,7 @@ L-db1: Includes reason parameter.</p>
     'life4: 'async_trait,
     'life5: 'async_trait,</div></h4></section></summary><div class="docblock"><p>M20: Emitted when a policy violation is detected (branch rejected).
 Enriched with changeset_hash, reason, and profile.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.behavioral_trigger-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.behavioral_trigger-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.behavioral_trigger" class="fn">behavioral_trigger</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.behavioral_trigger-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.behavioral_trigger-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.behavioral_trigger" class="fn">behavioral_trigger</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     trigger_json: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -488,7 +488,7 @@ Enriched with changeset_hash, reason, and profile.</p>
     'life0: 'async_trait,
     'life1: 'async_trait,
     'life2: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Emitted when a behavioral trigger fires.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.agent_timeout-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.agent_timeout-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.agent_timeout" class="fn">agent_timeout</a>&lt;'life0, 'life1, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.agent_timeout-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.agent_timeout-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.agent_timeout" class="fn">agent_timeout</a>&lt;'life0, 'life1, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     timeout_duration_secs: <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.u64.html">u64</a>,
@@ -496,7 +496,7 @@ Enriched with changeset_hash, reason, and profile.</p>
     Self: 'async_trait,
     'life0: 'async_trait,
     'life1: 'async_trait,</div></h4></section></summary><div class="docblock"><p>H12: Emitted when an agent times out (watchdog expiry).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.governance_review_pending-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.governance_review_pending-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.governance_review_pending" class="fn">governance_review_pending</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.governance_review_pending-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.governance_review_pending-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.governance_review_pending" class="fn">governance_review_pending</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     diff_summary: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -507,7 +507,7 @@ Enriched with changeset_hash, reason, and profile.</p>
     'life2: 'async_trait,</div></h4></section></summary><div class="docblock"><p>H-10: Emitted when a branch enters GovernanceReview state and awaits
 human approval. <code>diff_summary</code> is a JSON string with file count and
 total bytes.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_event-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.branch_event-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_event" class="fn">branch_event</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.branch_event-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.branch_event-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.branch_event" class="fn">branch_event</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     event_type: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -518,7 +518,7 @@ total bytes.</p>
     'life1: 'async_trait,
     'life2: 'async_trait,
     'life3: 'async_trait,</div></h4></section></summary><div class="docblock"><p>M-db1: Generic branch event signal for extensible event notification.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.dlp_violation-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.dlp_violation-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.dlp_violation" class="fn">dlp_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.dlp_violation-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.dlp_violation-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.dlp_violation" class="fn">dlp_violation</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     rule_name: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -531,7 +531,7 @@ total bytes.</p>
     'life2: 'async_trait,
     'life3: 'async_trait,
     'life4: 'async_trait,</div></h4></section></summary><div class="docblock"><p>§3.3: DLP violation detected — emitted when DLP blocks or quarantines a request.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_rotated-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.credential_rotated-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_rotated" class="fn">credential_rotated</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_rotated-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.credential_rotated-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_rotated" class="fn">credential_rotated</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     credential_name: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -542,7 +542,7 @@ total bytes.</p>
     'life1: 'async_trait,
     'life2: 'async_trait,
     'life3: 'async_trait,</div></h4></section></summary><div class="docblock"><p>§3.4 G20: Credential rotated — emitted when a credential value is refreshed.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_resolved-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.credential_resolved-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_resolved" class="fn">credential_resolved</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_resolved-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.credential_resolved-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_resolved" class="fn">credential_resolved</a>&lt;'life0, 'life1, 'life2, 'life3, 'life4, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     credential_name: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
@@ -555,7 +555,7 @@ total bytes.</p>
     'life2: 'async_trait,
     'life3: 'async_trait,
     'life4: 'async_trait,</div></h4></section></summary><div class="docblock"><p>§3.4 G20: Credential resolved — emitted when a phantom token is swapped for real value.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_proxy_error-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus.rs.html#149">Source</a><a href="#method.credential_proxy_error-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_proxy_error" class="fn">credential_proxy_error</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.credential_proxy_error-1" class="method trait-impl"><a class="src rightside" href="../../src/puzzled/dbus/mod.rs.html#47">Source</a><a href="#method.credential_proxy_error-1" class="anchor">§</a><h4 class="code-header">fn <a href="#tymethod.credential_proxy_error" class="fn">credential_proxy_error</a>&lt;'life0, 'life1, 'life2, 'life3, 'async_trait&gt;(
     &amp;'life0 self,
     branch_id: &amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,
     error: &amp;'life2 <a class="primitive" href="https://doc.rust-lang.org/1.94.1/std/primitive.str.html">str</a>,

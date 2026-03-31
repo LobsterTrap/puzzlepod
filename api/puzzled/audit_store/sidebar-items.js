@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["csv_escape","fsync_dir","now_rfc3339"],"struct":["AuditEventRecord","AuditStore","StoredAuditEvent"]};
+window.SIDEBAR_ITEMS = {"fn":["csv_escape","fsync_dir","now_rfc3339"],"struct":["AuditStore","StoredAuditEvent"],"type":["AuditEventRecord"]};

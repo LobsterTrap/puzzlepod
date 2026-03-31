@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["cmd_profile_init","cmd_profile_list","cmd_profile_show","cmd_profile_test","cmd_profile_validate"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["generate_landlock_rules","is_denylisted","is_denylisted_str","write_landlock_rules"],"struct":["LandlockRules"]};
+window.SIDEBAR_ITEMS = {"fn":["generate_landlock_rules","is_denylisted","write_landlock_rules"],"struct":["LandlockRules"]};

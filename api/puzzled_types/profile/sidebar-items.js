@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["FailMode","NetworkMode","SeccompMode"],"struct":["AgentProfile","BehavioralConfig","EnforcementRequirements","FilesystemRules","NetworkConfig","ResourceLimits"]};

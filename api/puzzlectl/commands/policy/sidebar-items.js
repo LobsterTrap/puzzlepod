@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["cmd_policy_add_rule","cmd_policy_test","escape_ext_to_regex","escape_glob_to_regex","escape_rego_string","handle_reload","print_violations","sanitize_rule_name"]};

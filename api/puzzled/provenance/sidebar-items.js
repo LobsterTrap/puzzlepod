@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_WRITE_LOCKS"],"fn":["new_id","record_file_changes","record_governance"],"struct":["ProvenanceChain","ProvenanceStore"],"type":["Result"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_WRITE_LOCKS"],"fn":["new_id","record_file_changes","record_governance"],"struct":["ProvenanceChain","ProvenanceStore"]};

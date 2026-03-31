@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["VALID_LINUX_CAPS"],"fn":["domain_matches_pattern","merge_profile","validate_credential_specs","validate_profile"],"struct":["ProfileLoader"]};
+window.SIDEBAR_ITEMS = {"constant":["VALID_LINUX_CAPS"],"fn":["default_profile_schema_path","domain_matches_pattern","merge_profile","try_load_profile_schema_validator","validate_credential_specs","validate_profile"],"struct":["ProfileLoader"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_DEPTH","OVERLAY_REDIRECT_XATTR"],"fn":["read_mtime"],"struct":["DiffEngine"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_DEPTH","OVERLAY_REDIRECT_XATTR"],"fn":["has_base64_blocks","read_mtime","shannon_entropy"],"struct":["DiffEngine"]};

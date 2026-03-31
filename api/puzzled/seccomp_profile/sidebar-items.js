@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["DENY_SYSCALLS","LANDLOCK_SYSCALLS","NOTIFY_SYSCALLS"],"fn":["generate_seccomp_profile","write_seccomp_profile"],"struct":["OciSeccompProfile","SyscallArg","SyscallRule"]};
+window.SIDEBAR_ITEMS = {"constant":["LANDLOCK_SYSCALLS"],"fn":["generate_seccomp_profile","write_seccomp_profile"],"struct":["OciSeccompProfile","SyscallArg","SyscallRule"]};

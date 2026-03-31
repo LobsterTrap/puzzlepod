@@ -487,5 +487,18 @@
 <a href=#487 id=487 data-nosnippet>487</a>        <span class="self">self</span>.merge_path = <span class="prelude-val">None</span>;
 <a href=#488 id=488 data-nosnippet>488</a>        <span class="self">self</span>.history.clear();
 <a href=#489 id=489 data-nosnippet>489</a>    }
-<a href=#490 id=490 data-nosnippet>490</a>}
+<a href=#490 id=490 data-nosnippet>490</a>
+<a href=#491 id=491 data-nosnippet>491</a>    <span class="doccomment">/// Reset all runtime state to match a freshly constructed engine, but
+<a href=#492 id=492 data-nosnippet>492</a>    /// preserve `storage_base`.  This avoids reconstructing the entire engine
+<a href=#493 id=493 data-nosnippet>493</a>    /// just to change the simulation mode.
+<a href=#494 id=494 data-nosnippet>494</a>    </span><span class="kw">pub fn </span>reset_with_mode(<span class="kw-2">&amp;mut </span><span class="self">self</span>, mode: SimMode) {
+<a href=#495 id=495 data-nosnippet>495</a>        <span class="self">self</span>.scenario = <span class="prelude-val">None</span>;
+<a href=#496 id=496 data-nosnippet>496</a>        <span class="self">self</span>.profile_override = <span class="prelude-val">None</span>;
+<a href=#497 id=497 data-nosnippet>497</a>        <span class="self">self</span>.cursor = <span class="number">0</span>;
+<a href=#498 id=498 data-nosnippet>498</a>        <span class="self">self</span>.branch_id = <span class="prelude-val">None</span>;
+<a href=#499 id=499 data-nosnippet>499</a>        <span class="self">self</span>.merge_path = <span class="prelude-val">None</span>;
+<a href=#500 id=500 data-nosnippet>500</a>        <span class="self">self</span>.history.clear();
+<a href=#501 id=501 data-nosnippet>501</a>        <span class="self">self</span>.mode = mode;
+<a href=#502 id=502 data-nosnippet>502</a>    }
+<a href=#503 id=503 data-nosnippet>503</a>}
 </code></pre></div></section></main></body></html>

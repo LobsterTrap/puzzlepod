@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["BranchManager","CommitGuard"]};
+window.SIDEBAR_ITEMS = {"fn":["collect_puzzle_agent_scope_dirs","kill_surviving_agents_after_recovery"],"mod":["activate","cleanup","commit_flow"],"struct":["BranchManager","CommitGuard"]};

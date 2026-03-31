@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["run_all","run_all_with_mode","run_one","run_one_with_mode","run_scenario"]};
+window.SIDEBAR_ITEMS = {"fn":["run_all_with_mode","run_one_with_mode","run_scenario"]};

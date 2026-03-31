@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BaselineSeverity","TrustLevel"],"struct":["ScoringRule","TrustEvent","TrustState"]};

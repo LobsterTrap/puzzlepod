@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["GovernanceDecision"],"struct":["AgentIdentity","ConsistencyProof","InclusionProof"]};

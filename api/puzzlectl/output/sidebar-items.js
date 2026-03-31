@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_CREDENTIAL_SIZE"],"fn":["filter_branches_by_state","format_bytes","output_action","output_json_or_text","read_credential_stdin","truncate","validate_branch_id"]};

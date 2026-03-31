@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CredentialBackendType","CredentialExposure","CredentialFormat","CredentialMode","GeoEnforcement"],"fn":["default_geo_database","default_max_credential_size","default_proxy_ports","default_swap_headers","default_true_val","default_ttl"],"struct":["CredentialConfig","CredentialProxyConfig","CredentialSpec","DataResidencyConfig","GeoException"]};

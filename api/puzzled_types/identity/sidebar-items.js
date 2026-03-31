@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["IdentityInjectionMode"],"struct":["ContainmentClaims","DelegationMetadata","GovernanceClaims","GovernanceClaimsMetadata"]};

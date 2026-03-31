@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ConflictKind","ConflictResolution","PolicyDecision","ViolationSeverity"],"fn":["is_governance_significant"],"struct":["AuditFilter","CommitResult","Conflict","Violation"]};
