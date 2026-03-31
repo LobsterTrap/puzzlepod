@@ -487,4 +487,17 @@ impl SimEngine {
         self.merge_path = None;
         self.history.clear();
     }
+
+    /// Reset all runtime state to match a freshly constructed engine, but
+    /// preserve `storage_base`.  This avoids reconstructing the entire engine
+    /// just to change the simulation mode.
+    pub fn reset_with_mode(&mut self, mode: SimMode) {
+        self.scenario = None;
+        self.profile_override = None;
+        self.cursor = 0;
+        self.branch_id = None;
+        self.merge_path = None;
+        self.history.clear();
+        self.mode = mode;
+    }
 }

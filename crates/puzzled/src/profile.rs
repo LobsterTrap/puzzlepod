@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
+use jsonschema::Validator;
 use puzzled_types::AgentProfile;
+use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -382,78 +384,49 @@ fn domain_matches_pattern(domain: &str, pattern: &str) -> bool {
     }
 }
 
-/// Merge a parent profile with a child profile for inheritance.
-///
-/// Rules:
-/// - `name`, `description`: always use child's values
-/// - Vec fields (exec_allowlist, exec_denylist, capabilities, filesystem lists):
-///   if child's list is empty, inherit parent's; otherwise use child's
-/// - Scalar/struct fields (resource_limits, network, behavioral, enforcement,
-///   fail_mode, seccomp_mode, allow_symlinks, allow_exec_overlay): always use child's.
-///   **Security note**: When a child profile omits these fields, serde fills them
-///   with defaults (e.g., SeccompMode::Permissive, allow_symlinks: false). This
-///   means omitting a field in a child profile does NOT inherit the parent's value
-///   for scalars — it uses the serde default. Child profiles that extend a strict
-///   parent MUST explicitly set security-relevant scalar fields to avoid weakening.
-/// - `credentials`: use child's if Some, else parent's
-/// - `extends`: set to None (resolved)
-fn merge_profile(parent: &AgentProfile, child: &AgentProfile) -> AgentProfile {
-    use puzzled_types::FilesystemRules;
+/// Default path for the profile JSON Schema relative to `profiles_dir`
+/// (e.g. `policies/profiles` → `policies/schemas/profile.schema.json`).
+fn default_profile_schema_path(profiles_dir: &Path) -> PathBuf {
+    profiles_dir
+        .parent()
+        .unwrap_or(profiles_dir)
+        .join("schemas")
+        .join("profile.schema.json")
+}
 
-    let inherit_vec = |child_vec: &[String], parent_vec: &[String]| -> Vec<String> {
-        if child_vec.is_empty() {
-            parent_vec.to_vec()
-        } else {
-            child_vec.to_vec()
+fn try_load_profile_schema_validator(path: &Path) -> Option<Validator> {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "failed to read profile JSON Schema; schema validation disabled"
+            );
+            return None;
         }
     };
-
-    let inherit_pathvec = |child_vec: &[PathBuf], parent_vec: &[PathBuf]| -> Vec<PathBuf> {
-        if child_vec.is_empty() {
-            parent_vec.to_vec()
-        } else {
-            child_vec.to_vec()
+    let schema_value: JsonValue = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "profile JSON Schema is not valid JSON; schema validation disabled"
+            );
+            return None;
         }
     };
-
-    AgentProfile {
-        name: child.name.clone(),
-        description: child.description.clone(),
-        filesystem: FilesystemRules {
-            read_allowlist: inherit_pathvec(
-                &child.filesystem.read_allowlist,
-                &parent.filesystem.read_allowlist,
-            ),
-            write_allowlist: inherit_pathvec(
-                &child.filesystem.write_allowlist,
-                &parent.filesystem.write_allowlist,
-            ),
-            denylist: inherit_pathvec(&child.filesystem.denylist, &parent.filesystem.denylist),
-            read_denylist: inherit_pathvec(
-                &child.filesystem.read_denylist,
-                &parent.filesystem.read_denylist,
-            ),
-            write_denylist: inherit_pathvec(
-                &child.filesystem.write_denylist,
-                &parent.filesystem.write_denylist,
-            ),
-        },
-        exec_allowlist: inherit_vec(&child.exec_allowlist, &parent.exec_allowlist),
-        exec_denylist: inherit_vec(&child.exec_denylist, &parent.exec_denylist),
-        capabilities: inherit_vec(&child.capabilities, &parent.capabilities),
-        resource_limits: child.resource_limits.clone(),
-        network: child.network.clone(),
-        behavioral: child.behavioral.clone(),
-        fail_mode: child.fail_mode,
-        enforcement: child.enforcement.clone(),
-        seccomp_mode: child.seccomp_mode,
-        allow_symlinks: child.allow_symlinks,
-        allow_exec_overlay: child.allow_exec_overlay,
-        credentials: child
-            .credentials
-            .clone()
-            .or_else(|| parent.credentials.clone()),
-        extends: None,
+    match Validator::new(&schema_value) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "failed to compile profile JSON Schema; schema validation disabled"
+            );
+            None
+        }
     }
 }
 
@@ -461,14 +434,45 @@ fn merge_profile(parent: &AgentProfile, child: &AgentProfile) -> AgentProfile {
 pub struct ProfileLoader {
     profiles_dir: PathBuf,
     profiles: HashMap<String, AgentProfile>,
+    /// Cached compiled JSON Schema when `profile.schema.json` is present and valid.
+    profile_schema: Option<Validator>,
 }
 
 impl ProfileLoader {
     pub fn new(profiles_dir: PathBuf) -> Self {
+        let schema_path = default_profile_schema_path(&profiles_dir);
+        let profile_schema = if schema_path.is_file() {
+            try_load_profile_schema_validator(&schema_path)
+        } else {
+            tracing::debug!(
+                path = %schema_path.display(),
+                "profile JSON Schema not found; skipping advisory schema validation"
+            );
+            None
+        };
+
         Self {
             profiles_dir,
             profiles: HashMap::new(),
+            profile_schema,
         }
+    }
+
+    /// Returns advisory JSON Schema validation messages for `profile`.
+    ///
+    /// Empty when no schema was loaded at construction time. Rust semantic
+    /// validation ([`validate_profile`]) remains authoritative for loads.
+    pub fn schema_validate(&self, profile: &AgentProfile) -> Vec<String> {
+        let Some(ref validator) = self.profile_schema else {
+            return Vec::new();
+        };
+        let Ok(value) = serde_json::to_value(profile) else {
+            return vec!["failed to serialize profile as JSON for schema check".to_string()];
+        };
+        validator
+            .iter_errors(&value)
+            .map(|e| e.to_string())
+            .collect()
     }
 
     /// Load all `.yaml` profiles from the profiles directory.
@@ -491,7 +495,7 @@ impl ProfileLoader {
             let entry = entry.map_err(|e| PuzzledError::Profile(e.to_string()))?;
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("yaml") {
-                let profile = Self::load_one(&path)?;
+                let profile = self.load_one(&path)?;
                 new_profiles.insert(profile.name.clone(), profile);
             }
         }
@@ -502,6 +506,7 @@ impl ProfileLoader {
         let mut resolved = Self {
             profiles_dir: self.profiles_dir.clone(),
             profiles: new_profiles,
+            profile_schema: None,
         };
         resolved.resolve_inheritance()?;
 
@@ -516,7 +521,7 @@ impl ProfileLoader {
     /// M26: After deserialization, the profile is validated for semantic
     /// correctness (positive resource limits, valid capabilities, no
     /// denylist/allowlist overlap, appropriate fail mode).
-    fn load_one(path: &Path) -> Result<AgentProfile> {
+    fn load_one(&self, path: &Path) -> Result<AgentProfile> {
         let contents = std::fs::read_to_string(path)
             .map_err(|e| PuzzledError::Profile(format!("{}: {}", path.display(), e)))?;
         let profile: AgentProfile = serde_yaml::from_str(&contents)
@@ -525,6 +530,34 @@ impl ProfileLoader {
         validate_profile(&profile).map_err(|e| {
             PuzzledError::Profile(format!("{}: validation failed: {}", path.display(), e))
         })?;
+
+        if let Some(ref validator) = self.profile_schema {
+            match serde_json::to_value(&profile) {
+                Ok(value) => {
+                    for err in validator.iter_errors(&value) {
+                        tracing::warn!(
+                            path = %path.display(),
+                            profile = %profile.name,
+                            error = %err,
+                            "profile JSON Schema advisory validation"
+                        );
+                    }
+                }
+                Err(e) => tracing::warn!(
+                    path = %path.display(),
+                    profile = %profile.name,
+                    error = %e,
+                    "profile JSON Schema advisory validation skipped (JSON serialization failed)"
+                ),
+            }
+        }
+
+        if profile.seccomp_mode == puzzled_types::SeccompMode::Permissive {
+            tracing::warn!(
+                "profile '{}' uses seccomp Permissive mode — Strict mode is recommended for production deployments",
+                profile.name
+            );
+        }
 
         Ok(profile)
     }
@@ -537,6 +570,16 @@ impl ProfileLoader {
     /// List all loaded profile names.
     pub fn list(&self) -> Vec<&str> {
         self.profiles.keys().map(|s| s.as_str()).collect()
+    }
+
+    /// Return owned list of loaded profile names (for serialization across API boundaries).
+    pub fn list_names(&self) -> Vec<String> {
+        self.profiles.keys().cloned().collect()
+    }
+
+    /// Return the number of loaded profiles.
+    pub fn count(&self) -> usize {
+        self.profiles.len()
     }
 
     /// Resolve profile inheritance chains.
@@ -609,6 +652,67 @@ impl ProfileLoader {
         }
 
         Ok(())
+    }
+}
+
+/// Merge a child profile with its parent, inheriting empty fields from parent.
+fn merge_profile(parent: &AgentProfile, child: &AgentProfile) -> AgentProfile {
+    use puzzled_types::FilesystemRules;
+
+    let inherit_vec = |child_vec: &[String], parent_vec: &[String]| -> Vec<String> {
+        if child_vec.is_empty() {
+            parent_vec.to_vec()
+        } else {
+            child_vec.to_vec()
+        }
+    };
+
+    let inherit_pathvec = |child_vec: &[PathBuf], parent_vec: &[PathBuf]| -> Vec<PathBuf> {
+        if child_vec.is_empty() {
+            parent_vec.to_vec()
+        } else {
+            child_vec.to_vec()
+        }
+    };
+
+    AgentProfile {
+        name: child.name.clone(),
+        description: child.description.clone(),
+        filesystem: FilesystemRules {
+            read_allowlist: inherit_pathvec(
+                &child.filesystem.read_allowlist,
+                &parent.filesystem.read_allowlist,
+            ),
+            write_allowlist: inherit_pathvec(
+                &child.filesystem.write_allowlist,
+                &parent.filesystem.write_allowlist,
+            ),
+            denylist: inherit_pathvec(&child.filesystem.denylist, &parent.filesystem.denylist),
+            read_denylist: inherit_pathvec(
+                &child.filesystem.read_denylist,
+                &parent.filesystem.read_denylist,
+            ),
+            write_denylist: inherit_pathvec(
+                &child.filesystem.write_denylist,
+                &parent.filesystem.write_denylist,
+            ),
+        },
+        exec_allowlist: inherit_vec(&child.exec_allowlist, &parent.exec_allowlist),
+        exec_denylist: inherit_vec(&child.exec_denylist, &parent.exec_denylist),
+        capabilities: inherit_vec(&child.capabilities, &parent.capabilities),
+        resource_limits: child.resource_limits.clone(),
+        network: child.network.clone(),
+        behavioral: child.behavioral.clone(),
+        fail_mode: child.fail_mode,
+        enforcement: child.enforcement.clone(),
+        seccomp_mode: child.seccomp_mode,
+        allow_symlinks: child.allow_symlinks,
+        allow_exec_overlay: child.allow_exec_overlay,
+        credentials: child
+            .credentials
+            .clone()
+            .or_else(|| parent.credentials.clone()),
+        extends: None,
     }
 }
 

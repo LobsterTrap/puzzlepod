@@ -2,6 +2,11 @@
 use thiserror::Error;
 
 /// Top-level error type for the puzzled daemon.
+///
+/// Variants that wrap `String` are legacy — prefer the typed source-preserving
+/// variants (e.g., `SerdeJson`, `SerdeYaml`) where possible.  Existing
+/// `PuzzledError::Foo(format!(...))` call sites remain valid and can be migrated
+/// incrementally.
 #[derive(Debug, Error)]
 pub enum PuzzledError {
     #[error("branch error: {0}")]
@@ -75,6 +80,15 @@ pub enum PuzzledError {
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("JSON serialization error: {0}")]
+    SerdeJson(#[from] serde_json::Error),
+
+    #[error("YAML parsing error: {0}")]
+    SerdeYaml(#[from] serde_yaml::Error),
+
+    #[error("directory walk error: {0}")]
+    WalkDir(#[from] walkdir::Error),
 }
 
 pub type Result<T> = std::result::Result<T, PuzzledError>;
@@ -405,5 +419,32 @@ mod tests {
     fn source_for_string_variant_is_none() {
         let e = PuzzledError::Branch("no source".into());
         assert!(std::error::Error::source(&e).is_none());
+    }
+
+    // --- New typed error variants ---
+
+    #[test]
+    fn from_serde_json_error() {
+        let json_err = serde_json::from_str::<serde_json::Value>("{{bad}}").unwrap_err();
+        let e: PuzzledError = json_err.into();
+        assert!(matches!(e, PuzzledError::SerdeJson(_)));
+        assert!(std::error::Error::source(&e).is_some());
+    }
+
+    #[test]
+    fn from_serde_yaml_error() {
+        let yaml_err = serde_yaml::from_str::<serde_json::Value>(":\n  :\n    :").unwrap_err();
+        let e: PuzzledError = yaml_err.into();
+        assert!(matches!(e, PuzzledError::SerdeYaml(_)));
+        assert!(std::error::Error::source(&e).is_some());
+    }
+
+    #[test]
+    fn from_walkdir_error() {
+        // walkdir::Error cannot be constructed directly, but we can test the variant exists
+        fn accepts_walkdir_err(e: walkdir::Error) -> PuzzledError {
+            e.into()
+        }
+        let _ = accepts_walkdir_err; // compile-time check
     }
 }

@@ -1,1096 +1,186 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Shared types for the PuzzlePod daemon (`puzzled`) and CLI (`puzzlectl`).
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use uuid::Uuid;
-use zbus::zvariant::Type;
+pub mod attestation;
+pub mod audit;
+pub mod behavioral;
+pub mod branch;
+pub mod change;
+pub mod credential;
+pub mod identity;
+pub mod policy;
+pub mod profile;
+pub mod provenance;
+pub mod trust;
+
+// Explicit re-exports — makes the public API clear and prevents name collisions.
+pub use attestation::{AgentIdentity, ConsistencyProof, GovernanceDecision, InclusionProof};
+pub use audit::{AuditRecord, AuditRecordEvent};
+pub use behavioral::{BehavioralTrigger, BudgetStatus, BudgetTier};
+pub use branch::{BranchId, BranchInfo, BranchState};
+pub use change::{FileChange, FileChangeKind};
+pub use credential::{
+    CredentialBackendType, CredentialConfig, CredentialExposure, CredentialFormat, CredentialMode,
+    CredentialProxyConfig, CredentialSpec, DataResidencyConfig, GeoEnforcement, GeoException,
+};
+pub use identity::{
+    ContainmentClaims, DelegationMetadata, GovernanceClaims, GovernanceClaimsMetadata,
+    IdentityInjectionMode,
+};
+pub use policy::{
+    is_governance_significant, AuditFilter, CommitResult, Conflict, ConflictKind,
+    ConflictResolution, PolicyDecision, Violation, ViolationSeverity,
+};
+pub use profile::{
+    AgentProfile, BehavioralConfig, EnforcementRequirements, FailMode, FilesystemRules,
+    NetworkConfig, NetworkMode, ResourceLimits, SeccompMode,
+};
+pub use provenance::{ProvenanceRecord, ProvenanceType};
+pub use trust::{BaselineSeverity, ScoringRule, TrustEvent, TrustLevel, TrustState};
 
 // ---------------------------------------------------------------------------
-// Branch identity
+// Merkle tree crypto utilities (A-M1: deduplicated from attestation.rs + puzzlectl)
 // ---------------------------------------------------------------------------
 
-/// Unique identifier for a branch (OverlayFS upper-layer instance).
-///
-/// The inner `String` field is private to enforce validation on construction.
-/// Use `BranchId::new()` for fresh IDs, `BranchId::validated()` for untrusted
-/// input, or `BranchId::from()` for trusted internal strings.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Type)]
-pub struct BranchId(String);
+/// Shared Merkle tree cryptographic functions used by both `puzzled` (attestation)
+/// and `puzzlectl` (verification). Domain-separated hashing per RFC 6962.
+pub mod merkle {
+    use sha2::{Digest, Sha256};
 
-/// Custom `Deserialize` for `BranchId` that validates input via `validated()`.
-/// Rejects malformed IDs (path traversal, control chars, etc.) at deserialization
-/// time rather than silently accepting them.
-impl<'de> Deserialize<'de> for BranchId {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        BranchId::validated(s).map_err(serde::de::Error::custom)
-    }
-}
+    /// Domain separation prefix for leaf nodes (RFC 6962 §2.1).
+    const LEAF_PREFIX: u8 = 0x00;
+    /// Domain separation prefix for internal nodes (RFC 6962 §2.1).
+    const NODE_PREFIX: u8 = 0x01;
 
-impl BranchId {
-    pub fn new() -> Self {
-        Self(Uuid::new_v4().to_string())
+    /// Compute domain-separated leaf hash: SHA-256(0x00 || data).
+    pub fn hash_leaf(data: &[u8]) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update([LEAF_PREFIX]);
+        hasher.update(data);
+        hasher.finalize().into()
     }
 
-    /// Create a BranchId from an externally-provided string, with validation.
-    ///
-    /// Rejects strings that could enable path traversal or other injection:
-    /// - Empty strings
-    /// - Strings containing `/`, `..`, `\0`, `\n`, or other control characters
-    /// - Strings with non-alphanumeric characters (except `-` and `_`)
-    /// - Strings longer than 256 characters
-    pub fn validated(s: String) -> std::result::Result<Self, String> {
-        if s.is_empty() {
-            return Err("BranchId must not be empty".to_string());
+    /// Compute domain-separated internal node hash: SHA-256(0x01 || left || right).
+    pub fn hash_node(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update([NODE_PREFIX]);
+        hasher.update(left);
+        hasher.update(right);
+        hasher.finalize().into()
+    }
+
+    /// Largest power of 2 strictly less than `n`.
+    pub fn largest_power_of_2_less_than(n: u64) -> u64 {
+        if n <= 1 {
+            return 0;
         }
-        if s.len() > 256 {
+        1u64 << (63 - (n - 1).leading_zeros())
+    }
+
+    /// Encode a byte slice as a lowercase hex string.
+    pub fn hex_encode(bytes: &[u8]) -> String {
+        const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
+        let mut s = String::with_capacity(bytes.len() * 2);
+        for &b in bytes {
+            s.push(HEX_CHARS[(b >> 4) as usize] as char);
+            s.push(HEX_CHARS[(b & 0x0f) as usize] as char);
+        }
+        s
+    }
+
+    /// Decode a hex string to bytes.
+    ///
+    /// Returns an error for odd-length strings, non-ASCII input, or invalid hex digits.
+    pub fn hex_decode(s: &str) -> Result<Vec<u8>, String> {
+        // A-M3: Guard against multi-byte UTF-8 input which would cause panics
+        // in the byte-offset indexing below (&s[i..i + 2]).
+        if !s.is_ascii() {
+            return Err("non-ASCII characters in hex string".to_string());
+        }
+        if !s.len().is_multiple_of(2) {
+            return Err("odd-length hex string".to_string());
+        }
+        (0..s.len())
+            .step_by(2)
+            .map(|i| {
+                u8::from_str_radix(&s[i..i + 2], 16)
+                    .map_err(|e| format!("invalid hex at position {}: {}", i, e))
+            })
+            .collect()
+    }
+
+    /// Recompute root hash from an inclusion proof (bottom-up traversal).
+    ///
+    /// Proof elements are consumed bottom-up via `pos` index, matching the
+    /// order they were generated (leaf-level sibling first, root-level last).
+    pub fn compute_root_from_inclusion(
+        leaf_index: u64,
+        tree_size: u64,
+        leaf_hash: &[u8; 32],
+        proof: &[[u8; 32]],
+        pos: &mut usize,
+    ) -> Option<[u8; 32]> {
+        if tree_size <= 1 {
+            return Some(*leaf_hash);
+        }
+        let k = largest_power_of_2_less_than(tree_size);
+        if leaf_index < k {
+            let left = compute_root_from_inclusion(leaf_index, k, leaf_hash, proof, pos)?;
+            let right = *proof.get(*pos)?;
+            *pos += 1;
+            Some(hash_node(&left, &right))
+        } else {
+            let right =
+                compute_root_from_inclusion(leaf_index - k, tree_size - k, leaf_hash, proof, pos)?;
+            let left = *proof.get(*pos)?;
+            *pos += 1;
+            Some(hash_node(&left, &right))
+        }
+    }
+
+    /// Verify a Merkle inclusion proof against an expected root hash.
+    ///
+    /// Returns `Ok(true)` if the proof is valid, `Ok(false)` if the computed root
+    /// doesn't match, or `Err` if the proof is malformed.
+    pub fn verify_merkle_inclusion(
+        leaf_hash: &[u8; 32],
+        proof: &super::InclusionProof,
+        expected_root: &[u8; 32],
+    ) -> Result<bool, String> {
+        let proof_hashes: Vec<[u8; 32]> = proof
+            .proof_hashes
+            .iter()
+            .map(|h| {
+                let bytes = hex_decode(h)?;
+                if bytes.len() != 32 {
+                    return Err(format!("proof hash must be 32 bytes, got {}", bytes.len()));
+                }
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                Ok(arr)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut pos = 0;
+        let computed = compute_root_from_inclusion(
+            proof.leaf_index,
+            proof.tree_size,
+            leaf_hash,
+            &proof_hashes,
+            &mut pos,
+        )
+        .ok_or_else(|| "malformed inclusion proof: insufficient proof hashes".to_string())?;
+
+        // RFC 6962: all proof hashes must be consumed
+        if pos != proof_hashes.len() {
             return Err(format!(
-                "BranchId exceeds maximum length of 256 characters (got {})",
-                s.len()
+                "malformed inclusion proof: {} extra hashes",
+                proof_hashes.len() - pos
             ));
         }
-        for c in s.chars() {
-            if c == '/' {
-                return Err("BranchId must not contain '/'".to_string());
-            }
-            if c == '\0' {
-                return Err("BranchId must not contain null bytes".to_string());
-            }
-            if c.is_control() {
-                return Err(format!(
-                    "BranchId must not contain control characters (found U+{:04X})",
-                    c as u32
-                ));
-            }
-            if !(c.is_alphanumeric() || c == '-' || c == '_') {
-                return Err(format!(
-                    "BranchId contains invalid character '{}' (allowed: alphanumeric, '-', '_')",
-                    c
-                ));
-            }
-        }
-        if s.contains("..") {
-            return Err("BranchId must not contain '..'".to_string());
-        }
-        Ok(Self(s))
+
+        Ok(computed == *expected_root)
     }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl Default for BranchId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for BranchId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl From<String> for BranchId {
-    /// Create a BranchId from a string.
-    ///
-    /// G28: Always validates input. Panics on invalid input in both debug and
-    /// release builds to prevent silently accepting path-traversal or injection
-    /// attacks. This is intended for internal/trusted use (e.g., UUIDs generated
-    /// by `BranchId::new()`, test fixtures). For external/untrusted input
-    /// (D-Bus, CLI arguments), use `BranchId::validated()` instead.
-    fn from(s: String) -> Self {
-        match Self::validated(s.clone()) {
-            Ok(id) => id,
-            Err(e) => {
-                // G28: Always validate — do not silently accept invalid input
-                // in release builds. Panic to surface misuse immediately.
-                eprintln!(
-                    "ERROR: G28: BranchId::from() called with invalid input '{}': {}",
-                    s, e
-                );
-                panic!("G28: BranchId::from() called with invalid input: {e}");
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Branch lifecycle
-// ---------------------------------------------------------------------------
-
-/// State machine for a branch's lifecycle.
-///
-/// ```text
-/// E3: Valid state transitions:
-///
-///   Creating ──→ Ready ──→ Active ──→ Frozen ──→ Committing ──→ Committed
-///                  │  │      │  ↑        │  ↑        │
-///                  │  │      │  │        │  └────────┘ (WAL failure → Active)
-///                  │  │      │  │        │
-///                  │  │      │  │        ├──→ GovernanceReview ──→ Committed (approved)
-///                  │  │      │  │        │                    └──→ RolledBack (rejected/timeout)
-///                  │  │      │  │        ├──→ RolledBack (policy rejected)
-///                  │  │      │  │        ├──→ Committed  (empty changeset)
-///                  │  │      │  │        └──→ Terminated (OOM during freeze)
-///                  │  │      │  │
-///                  │  │      │  └──────── Frozen (FailSilent/FailOperational recovery)
-///                  │  │      │
-///                  │  │      ├──→ RolledBack (user-initiated)
-///                  │  │      ├──→ Exited     (clean exit, code 0)
-///                  │  │      └──→ Terminated (signal or non-zero exit)
-///                  │  │
-///                  │  └──→ Frozen (direct-mode commit, no process to freeze)
-///                  └──→ RolledBack (workspace cancelled before activation)
-///
-///   Exited ──→ Frozen (freeze after clean exit for commit)
-///   Terminated ──→ RolledBack (cleanup after termination)
-///   Committing ──→ Failed (fatal commit error)
-///   Any ──→ Degraded (FailOperational/FailSilent — branch tracked but not active)
-///   Any ──→ Failed (fail-closed default)
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub enum BranchState {
-    /// Sandbox is being set up (namespaces, OverlayFS, Landlock, seccomp, cgroup).
-    Creating,
-    /// Workspace directories are provisioned; no sandbox is active yet.
-    /// Waiting for `activate_branch()` to spawn the sandboxed process.
-    Ready,
-    /// Agent is running inside the sandbox.
-    Active,
-    /// Agent processes are frozen via cgroup.freeze for TOCTOU-free diff.
-    Frozen,
-    /// Commit is in progress (WAL write → apply → mark complete).
-    Committing,
-    /// H-9: Awaiting human reviewer approval (governance review).
-    /// Policy approved but `require_human_approval` is enabled.
-    GovernanceReview,
-    /// Changes have been committed to the base filesystem.
-    Committed,
-    /// Changes have been discarded (upper layer removed).
-    RolledBack,
-    /// An error occurred during the branch lifecycle.
-    Failed,
-    /// H-26: Branch is tracked but in a degraded state.
-    /// Used by FailOperational/FailSilent modes instead of removing the branch.
-    /// The agent process may still be running with reduced capability (FailOperational)
-    /// or frozen holding last safe state (FailSilent).
-    Degraded,
-    /// Agent process exited normally (exit code 0).
-    Exited,
-    /// Agent process was terminated (signal or non-zero exit).
-    Terminated,
-}
-
-impl std::fmt::Display for BranchState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            Self::Creating => "creating",
-            Self::Ready => "ready",
-            Self::Active => "active",
-            Self::Frozen => "frozen",
-            Self::Committing => "committing",
-            Self::GovernanceReview => "governance_review",
-            Self::Committed => "committed",
-            Self::RolledBack => "rolled_back",
-            Self::Failed => "failed",
-            Self::Degraded => "degraded",
-            Self::Exited => "exited",
-            Self::Terminated => "terminated",
-        };
-        f.write_str(s)
-    }
-}
-
-/// Metadata about an active or completed branch.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BranchInfo {
-    pub id: BranchId,
-    pub profile: String,
-    pub base_path: PathBuf,
-    pub upper_dir: PathBuf,
-    pub work_dir: PathBuf,
-    pub state: BranchState,
-    pub created_at: DateTime<Utc>,
-    /// M4: Expiration time derived from created_at + profile.lifetime_minutes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<DateTime<Utc>>,
-    /// PID of the agent init process (PID 1 inside the namespace).
-    pub pid: Option<u32>,
-    /// UID of the agent owner.
-    pub uid: u32,
-    /// Cached SELinux context at branch creation (avoids repeated /proc reads).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selinux_context: Option<String>,
-}
-
-// ---------------------------------------------------------------------------
-// Filesystem diff
-// ---------------------------------------------------------------------------
-
-/// Kind of change detected in the OverlayFS upper layer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub enum FileChangeKind {
-    /// m4: PRD canonical name is "Created"; "Added" kept as primary for backward compat.
-    #[serde(alias = "Created")]
-    Added,
-    Modified,
-    Deleted,
-    /// m5: PRD canonical name is "PermissionChanged"; "MetadataChanged" kept as primary.
-    #[serde(alias = "PermissionChanged")]
-    MetadataChanged,
-    /// File was renamed (OverlayFS redirect xattr).
-    Renamed,
-    /// H9: Symbolic link detected in changeset. Rejected by default unless
-    /// the agent profile sets `allow_symlinks: true`.
-    Symlink,
-    /// Q6: Hard link (nlink > 1) detected in changeset.
-    Hardlink,
-    /// Q6: Block device special file detected in changeset.
-    BlockDevice,
-    /// Q6: Character device special file detected in changeset.
-    CharDevice,
-    /// Q6: Named pipe (FIFO) detected in changeset.
-    Fifo,
-}
-
-/// A single file change in a branch diff.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileChange {
-    /// Path relative to the branch root.
-    pub path: PathBuf,
-    pub kind: FileChangeKind,
-    /// Size in bytes (0 for deletions).
-    pub size: u64,
-    /// Size of the file in the base layer (for Modified changes).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub old_size: Option<u64>,
-    /// File mode in the base layer (for Modified/MetadataChanged).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub old_mode: Option<u32>,
-    /// File mode in the upper layer.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub new_mode: Option<u32>,
-    /// SHA-256 checksum of file contents (empty for deletions).
-    pub checksum: String,
-    /// RFC 3339 timestamp of the file modification.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<String>,
-    /// K60: Symlink target path (only populated for Symlink changes).
-    /// Included in Rego input so policies can validate symlink destinations.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target: Option<String>,
-}
-
-// ---------------------------------------------------------------------------
-// Commit / policy
-// ---------------------------------------------------------------------------
-
-/// Result of a branch commit operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CommitResult {
-    pub branch_id: BranchId,
-    pub files_committed: u64,
-    pub bytes_committed: u64,
-    pub policy_result: PolicyDecision,
-}
-
-/// Outcome of OPA/Rego policy evaluation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PolicyDecision {
-    Approved,
-    Rejected(Vec<Violation>),
-    Error(String),
-}
-
-/// A single policy violation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Violation {
-    /// Rego rule that triggered the violation.
-    pub rule: String,
-    /// Human-readable description.
-    pub message: String,
-    pub severity: ViolationSeverity,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub enum ViolationSeverity {
-    Warning,
-    Error,
-    Critical,
-}
-
-// ---------------------------------------------------------------------------
-// Agent profiles
-// ---------------------------------------------------------------------------
-
-/// An agent profile defines the sandbox constraints for a class of agents.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentProfile {
-    pub name: String,
-    pub description: String,
-    pub filesystem: FilesystemRules,
-    pub exec_allowlist: Vec<String>,
-    /// H12: Executables explicitly denied (e.g., "curl", "wget", "nc").
-    #[serde(default)]
-    pub exec_denylist: Vec<String>,
-    pub resource_limits: ResourceLimits,
-    pub network: NetworkConfig,
-    pub behavioral: BehavioralConfig,
-    /// Fail mode for safety-critical deployments.
-    #[serde(default)]
-    pub fail_mode: FailMode,
-    /// Linux capabilities to retain (empty = drop all).
-    #[serde(default)]
-    pub capabilities: Vec<String>,
-    /// Which enforcement mechanisms are required vs best-effort.
-    #[serde(default)]
-    pub enforcement: EnforcementRequirements,
-    /// seccomp filter mode: `Permissive` (default-allow + denylist) or
-    /// `Strict` (default-deny + allowlist). Default: `Permissive`.
-    #[serde(default)]
-    pub seccomp_mode: SeccompMode,
-    /// H10: Whether symlinks are allowed in changesets. Default: false (reject).
-    /// Set to true for profiles that legitimately need to create symlinks.
-    #[serde(default)]
-    pub allow_symlinks: bool,
-    /// Whether to allow exec from the OverlayFS mount. Default: false (MS_NOEXEC applied).
-    #[serde(default)]
-    pub allow_exec_overlay: bool,
-    /// Credential injection configuration (§3.4). If None, no credentials injected.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credentials: Option<CredentialConfig>,
-    /// Optional parent profile to inherit defaults from.
-    /// Child fields override parent fields. Max inheritance depth: 3.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extends: Option<String>,
-}
-
-/// Credential injection configuration per profile (§3.4.10).
-///
-/// Matches the PRD §3.4.10 schema: `secrets` defines per-credential specs,
-/// `proxy` configures the transparent DNAT proxy.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CredentialConfig {
-    /// Per-credential specifications.
-    #[serde(default)]
-    pub secrets: Vec<CredentialSpec>,
-    /// Proxy configuration for transparent credential injection.
-    #[serde(default)]
-    pub proxy: CredentialProxyConfig,
-}
-
-impl CredentialConfig {
-    /// Derive (domain, credential_name, env_var, required) tuples from secrets for
-    /// phantom token issuance. Each credential's first Env exposure is used.
-    /// M-4: Includes the `required` field from `CredentialSpec`.
-    pub fn credential_mappings(&self) -> Vec<(String, String, String, bool)> {
-        let mut result = Vec::new();
-        for spec in &self.secrets {
-            let env_var = spec
-                .expose
-                .iter()
-                .find_map(|e| match e {
-                    CredentialExposure::Env { var, .. } => Some(var.clone()),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            for domain in &spec.domains {
-                result.push((
-                    domain.clone(),
-                    spec.name.clone(),
-                    env_var.clone(),
-                    spec.required,
-                ));
-            }
-        }
-        result
-    }
-
-    /// Whether phantom token injection is enabled (secrets defined and proxy enabled).
-    pub fn is_phantom_enabled(&self) -> bool {
-        !self.secrets.is_empty() && self.proxy.enabled
-    }
-}
-
-/// Credential injection mode (§3.4).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CredentialMode {
-    /// Phantom tokens: agent sees surrogates, proxy injects real credentials.
-    #[default]
-    Phantom,
-    /// Passthrough: agent manages its own credentials (no injection).
-    Passthrough,
-    /// Blocked: agent cannot use any credentials (all auth headers stripped).
-    Blocked,
-}
-
-// ---------------------------------------------------------------------------
-// §3.4 G16: Extended credential isolation types
-// ---------------------------------------------------------------------------
-
-/// Full credential specification per PRD §3.4.10.
-///
-/// Clone is derived because CredentialSpec is part of CredentialConfig which
-/// is embedded in AgentProfile (Clone). This type contains credential
-/// *configuration* (names, backends, domains), never real credential values.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CredentialSpec {
-    /// Unique credential name within the profile.
-    pub name: String,
-    /// Storage backend type.
-    #[serde(default)]
-    pub backend: CredentialBackendType,
-    /// Backend-specific configuration (opaque JSON).
-    #[serde(default)]
-    pub backend_config: serde_json::Value,
-    /// How to expose the credential to the agent (env var, file, etc.).
-    #[serde(default)]
-    pub expose: Vec<CredentialExposure>,
-    /// Whether to issue a phantom token for this credential (default: true).
-    #[serde(default = "default_true_val")]
-    pub phantom_token: bool,
-    /// Domains this credential should be injected for.
-    #[serde(default)]
-    pub domains: Vec<String>,
-    /// Allow wildcard domain patterns (default: false).
-    #[serde(default)]
-    pub allow_wildcard_domains: bool,
-    /// Credential TTL in seconds for rotation (default: 900 = 15 minutes).
-    #[serde(default = "default_ttl")]
-    pub ttl_seconds: u64,
-    /// Headers to scan for phantom token swapping.
-    #[serde(default = "default_swap_headers")]
-    pub swap_headers: Vec<String>,
-    /// Maximum credential value size in bytes (default: 4096).
-    #[serde(default = "default_max_credential_size")]
-    pub max_credential_size: usize,
-    /// Whether this credential is required for branch creation (default: true).
-    #[serde(default = "default_true_val")]
-    pub required: bool,
-}
-
-fn default_true_val() -> bool {
-    true
-}
-fn default_ttl() -> u64 {
-    900
-}
-fn default_swap_headers() -> Vec<String> {
-    vec!["authorization".to_string(), "x-api-key".to_string()]
-}
-fn default_max_credential_size() -> usize {
-    4096
-}
-
-/// How a credential is exposed to the agent process.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-pub enum CredentialExposure {
-    /// Expose as an environment variable.
-    Env {
-        /// Environment variable name.
-        var: String,
-        /// Optional JSON field path to extract (for structured secrets).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        field: Option<String>,
-    },
-    /// Expose as a file mounted into the container.
-    File {
-        /// Path inside the container.
-        path: std::path::PathBuf,
-        /// File format.
-        #[serde(default)]
-        format: CredentialFormat,
-    },
-}
-
-/// File format when exposing credentials as files.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CredentialFormat {
-    /// Raw value, no formatting.
-    #[default]
-    Raw,
-    /// INI-style key=value.
-    Ini,
-    /// JSON object.
-    Json,
-    /// Shell-compatible KEY=VALUE.
-    Dotenv,
-}
-
-/// Credential storage backend type.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CredentialBackendType {
-    /// AES-256-GCM encrypted local file (HKDF-derived key).
-    #[default]
-    EncryptedFile,
-    /// systemd-creds encrypt/decrypt (PRD §3.4.9 default).
-    SystemdCreds,
-    /// Read from puzzled's own environment variables (CI/development).
-    EnvPassthrough,
-    /// HashiCorp Vault KV v2.
-    Vault,
-    /// OpenBAO (open-source Vault fork).
-    Openbao,
-    /// AWS STS temporary credentials.
-    AwsSts,
-}
-
-/// Credential proxy configuration within a profile.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CredentialProxyConfig {
-    /// Enable the credential proxy for this profile (default: true).
-    /// Per PRD §3.4.10, the proxy is enabled by default when credentials
-    /// are configured.
-    #[serde(default = "default_true_val")]
-    pub enabled: bool,
-    /// Ports to intercept via DNAT (default: [80, 443]).
-    #[serde(default = "default_proxy_ports")]
-    pub ports: Vec<u16>,
-    /// Path to the combined CA trust bundle inside the container.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ca_trust_path: Option<std::path::PathBuf>,
-    /// Domains that bypass the proxy (direct connection allowed).
-    #[serde(default)]
-    pub passthrough_domains: Vec<String>,
-}
-
-impl Default for CredentialProxyConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            ports: default_proxy_ports(),
-            ca_trust_path: None,
-            passthrough_domains: vec![],
-        }
-    }
-}
-
-fn default_proxy_ports() -> Vec<u16> {
-    vec![80, 443]
-}
-
-/// seccomp filter strategy for sandboxed agent processes.
-///
-/// `Permissive` (default-allow): all syscalls are allowed except those in
-/// the KillProcess deny list and the USER_NOTIF-gated list. Unknown or
-/// missing syscalls do not cause silent failures in agent workloads.
-///
-/// `Strict` (default-deny): only explicitly allowlisted syscalls are
-/// permitted. Anything not in the allowlist, USER_NOTIF list, or
-/// KillProcess deny list returns EPERM. More secure but requires the
-/// allowlist to cover every syscall the agent workload needs.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub enum SeccompMode {
-    /// Default-allow with aggressive denylist. Safe for production — unknown
-    /// syscalls succeed, deny list blocks escape vectors, USER_NOTIF gates
-    /// high-impact calls. Avoids silent workload failures from incomplete
-    /// allowlists.
-    #[default]
-    Permissive,
-    /// Default-deny with curated allowlist (~120 syscalls). Maximum security
-    /// posture — novel/unknown syscalls return EPERM. Requires validation
-    /// that the allowlist covers the target workload's syscall surface.
-    Strict,
-}
-
-impl std::fmt::Display for SeccompMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Permissive => f.write_str("permissive"),
-            Self::Strict => f.write_str("strict"),
-        }
-    }
-}
-
-/// Configures which enforcement mechanisms must succeed during sandbox setup.
-///
-/// When a mechanism marked `true` fails, sandbox creation is aborted instead
-/// of silently continuing. Default: all best-effort (false) for backwards
-/// compatibility and development on non-XFS/non-BPF systems.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct EnforcementRequirements {
-    /// XFS project quota setup must succeed.
-    #[serde(default)]
-    pub require_quota: bool,
-    /// BPF LSM attachment must succeed.
-    #[serde(default)]
-    pub require_bpf_lsm: bool,
-    /// Landlock ruleset application must succeed.
-    #[serde(default)]
-    pub require_landlock: bool,
-    /// seccomp-BPF filter must be loaded.
-    #[serde(default)]
-    pub require_seccomp: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FilesystemRules {
-    /// Paths the agent may read.
-    /// m8: Accepts PRD-canonical "read_allow" as alias.
-    #[serde(alias = "read_allow")]
-    pub read_allowlist: Vec<PathBuf>,
-    /// Paths the agent may write.
-    /// m8: Accepts PRD-canonical "write_allow" as alias.
-    #[serde(alias = "write_allow")]
-    pub write_allowlist: Vec<PathBuf>,
-    /// Paths explicitly denied (override allowlists).
-    pub denylist: Vec<PathBuf>,
-    /// H11: Paths explicitly denied for reading (e.g., /etc/shadow, /proc/kcore).
-    #[serde(default)]
-    pub read_denylist: Vec<PathBuf>,
-    /// H11: Paths explicitly denied for writing (e.g., /boot, /usr/bin).
-    #[serde(default)]
-    pub write_denylist: Vec<PathBuf>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceLimits {
-    pub memory_bytes: u64,
-    pub cpu_shares: u32,
-    pub io_weight: u32,
-    pub max_pids: u32,
-    pub storage_quota_mb: u64,
-    pub inode_quota: u64,
-    /// L11: Maximum threads allowed (via clone3 thread counting).
-    #[serde(default)]
-    pub max_threads: Option<u32>,
-    /// L11: Prevent gaining new privileges (PR_SET_NO_NEW_PRIVS).
-    #[serde(default)]
-    pub no_new_privileges: Option<bool>,
-    /// L11: Maximum total files read during branch lifetime.
-    #[serde(default)]
-    pub max_files_read: Option<u64>,
-    /// L11: Maximum total files written during branch lifetime.
-    #[serde(default)]
-    pub max_files_written: Option<u64>,
-    /// L11: Maximum single file size in MB.
-    #[serde(default)]
-    pub max_single_file_size_mb: Option<u32>,
-    /// L6: CPU quota in microseconds per period (e.g., 50000 = 50% of one CPU).
-    #[serde(default)]
-    pub cpu_quota_us: Option<u64>,
-    /// memory.high — soft limit for throttling before OOM kill.
-    #[serde(default)]
-    pub memory_high: Option<u64>,
-    /// io.max — per-device I/O bandwidth limit string (e.g., "MAJ:MIN rbps=VALUE wbps=VALUE").
-    #[serde(default)]
-    pub io_max: Option<String>,
-    /// M2: Maximum exec calls allowed per branch lifetime (default: max_pids * 10).
-    #[serde(default)]
-    pub max_exec_calls: Option<u32>,
-    /// M2: Maximum open file descriptors (default 1024, range 64-65536).
-    #[serde(default)]
-    pub max_open_fds: Option<u32>,
-    /// M2: Maximum files deleted per branch lifetime.
-    #[serde(default)]
-    pub max_files_deleted: Option<u64>,
-    /// M2: Maximum total write volume in MB.
-    #[serde(default)]
-    pub max_total_write_mb: Option<u32>,
-    /// M4: Branch lifetime in minutes (default 60, range 1-1440).
-    #[serde(default)]
-    pub lifetime_minutes: Option<u32>,
-}
-
-impl Default for ResourceLimits {
-    fn default() -> Self {
-        Self {
-            memory_bytes: 512 * 1024 * 1024, // 512 MiB
-            cpu_shares: 100,
-            io_weight: 100,
-            max_pids: 64,
-            storage_quota_mb: 1024,
-            inode_quota: 10_000,
-            max_threads: None,
-            no_new_privileges: None,
-            max_files_read: None,
-            max_files_written: None,
-            max_single_file_size_mb: None,
-            cpu_quota_us: None,
-            memory_high: None,
-            io_max: None,
-            max_exec_calls: None,
-            max_open_fds: None,
-            max_files_deleted: None,
-            max_total_write_mb: None,
-            lifetime_minutes: None,
-        }
-    }
-}
-
-impl ResourceLimits {
-    /// M-typ2: Validate resource limit ranges.
-    ///
-    /// Returns a list of validation errors. Empty list means valid.
-    ///
-    /// H97: Callers MUST call `validate()` after deserialization (e.g., after
-    /// `serde_yaml::from_str`). Serde does not invoke this method automatically;
-    /// failing to call it allows invalid limits (zero memory, zero storage) to
-    /// reach the sandbox setup code unchecked.
-    // J69: Upper bound for memory_bytes: 64 TiB (largest practical server memory)
-    // V52: Explicit _u64 suffix to prevent silent overflow on 32-bit targets
-    pub const MAX_MEMORY_BYTES: u64 = 64_u64 * 1024 * 1024 * 1024 * 1024; // 64 TiB
-                                                                          // J69: Upper bound for storage_quota_mb: 1 PiB
-    pub const MAX_STORAGE_QUOTA_MB: u64 = 1024 * 1024 * 1024; // 1 PiB in MB
-
-    pub fn validate(&self) -> Vec<String> {
-        let mut errors = Vec::new();
-        // H89: memory_bytes must be > 0
-        if self.memory_bytes == 0 {
-            errors.push("memory_bytes must be > 0".to_string());
-        }
-        // J69: memory_bytes upper bound
-        if self.memory_bytes > Self::MAX_MEMORY_BYTES {
-            errors.push(format!(
-                "J69: memory_bytes {} exceeds maximum {} (64 TiB)",
-                self.memory_bytes,
-                Self::MAX_MEMORY_BYTES
-            ));
-        }
-        if self.cpu_shares == 0 || self.cpu_shares > 10000 {
-            errors.push(format!(
-                "cpu_shares must be 1-10000, got {}",
-                self.cpu_shares
-            ));
-        }
-        if self.io_weight == 0 || self.io_weight > 10000 {
-            errors.push(format!("io_weight must be 1-10000, got {}", self.io_weight));
-        }
-        if self.inode_quota == 0 {
-            errors.push("inode_quota must be > 0".to_string());
-        }
-        if self.max_pids == 0 || self.max_pids > 4_194_304 {
-            errors.push(format!("max_pids must be 1-4194304, got {}", self.max_pids));
-        }
-        // H89: storage_quota_mb must be > 0
-        if self.storage_quota_mb == 0 {
-            errors.push("storage_quota_mb must be > 0".to_string());
-        }
-        // J69: storage_quota_mb upper bound
-        if self.storage_quota_mb > Self::MAX_STORAGE_QUOTA_MB {
-            errors.push(format!(
-                "J69: storage_quota_mb {} exceeds maximum {} (1 PiB)",
-                self.storage_quota_mb,
-                Self::MAX_STORAGE_QUOTA_MB
-            ));
-        }
-        errors
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkConfig {
-    pub mode: NetworkMode,
-    /// Allowed domains (only for Gated mode).
-    pub allowed_domains: Vec<String>,
-    /// Data residency configuration (§3.3). If None, no geographic enforcement.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data_residency: Option<DataResidencyConfig>,
-    /// DLP content inspection rules file path (§3.3). If None, no content inspection.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dlp_rules_path: Option<String>,
-}
-
-/// Data residency configuration for geographic enforcement (§3.3).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DataResidencyConfig {
-    /// Allowed geographic regions (ISO 3166-1 alpha-2 codes or aliases: "EU", "EEA", "US", "APAC").
-    pub allowed_regions: Vec<String>,
-    /// Enforcement mode.
-    #[serde(default)]
-    pub geo_enforcement: GeoEnforcement,
-    /// Verify that DNS-resolved IPs match the claimed geographic region.
-    #[serde(default)]
-    pub dns_verification: bool,
-    /// Path to MaxMind GeoLite2-Country database (.mmdb).
-    #[serde(default = "default_geo_database")]
-    pub geo_database: String,
-    /// Domain exceptions (allowed regardless of region).
-    #[serde(default)]
-    pub exceptions: Vec<GeoException>,
-}
-
-fn default_geo_database() -> String {
-    "/usr/share/GeoIP/GeoLite2-Country.mmdb".to_string()
-}
-
-/// Geographic enforcement mode.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum GeoEnforcement {
-    #[default]
-    Strict,
-    Permissive,
-}
-
-/// Domain exception for data residency rules.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GeoException {
-    pub domain: String,
-    pub reason: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub approved_by: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires: Option<String>,
-}
-
-/// Network access mode for an agent sandbox.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub enum NetworkMode {
-    /// No network access (isolated network namespace with no interfaces).
-    Blocked,
-    /// Network access gated through puzzled proxy with domain allowlist.
-    Gated,
-    /// Full network access with logging.
-    Monitored,
-    /// Unrestricted network access.
-    Unrestricted,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BehavioralConfig {
-    /// Maximum number of files deleted in a single branch session.
-    pub max_deletions: u32,
-    /// Maximum number of files read per minute.
-    pub max_reads_per_minute: u32,
-    /// Trigger on access to credential-like paths.
-    pub credential_access_alert: bool,
-    /// §3.4 G28: Phantom token prefixes to detect in file writes.
-    /// When a file write contains any of these prefixes, a
-    /// `PhantomTokenLeakage` behavioral trigger is fired.
-    #[serde(default)]
-    pub phantom_token_prefixes: Vec<String>,
-}
-
-impl Default for BehavioralConfig {
-    fn default() -> Self {
-        Self {
-            max_deletions: 50,
-            max_reads_per_minute: 1000,
-            credential_access_alert: true,
-            phantom_token_prefixes: Vec::new(),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Fail modes (safety-critical deployments)
-// ---------------------------------------------------------------------------
-
-/// Fail mode for safety-critical deployments (IEC 61508 / ISO 26262).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub enum FailMode {
-    /// Default: reject commit, rollback branch.
-    #[default]
-    FailClosed,
-    /// Hold last safe state (do not commit, do not rollback).
-    FailSilent,
-    /// Continue with reduced capability (apply subset of changes).
-    FailOperational,
-    /// Controlled stop / return to base.
-    FailSafeState,
-}
-
-// ---------------------------------------------------------------------------
-// Conflict detection
-// ---------------------------------------------------------------------------
-
-/// A conflict between concurrent branches.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Conflict {
-    /// The conflicting file path.
-    pub path: PathBuf,
-    /// Branch IDs that modified this path.
-    pub conflicting_branches: Vec<BranchId>,
-    /// Type of conflict.
-    pub kind: ConflictKind,
-}
-
-/// Type of cross-branch conflict.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub enum ConflictKind {
-    /// Both branches modified the same file.
-    BothModified,
-    /// One branch modified, another deleted.
-    ModifiedAndDeleted,
-    /// Both branches created the same new file.
-    BothCreated,
-}
-
-/// Strategy for resolving cross-branch conflicts.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub enum ConflictResolution {
-    /// Default: reject the commit.
-    #[default]
-    Reject,
-    /// Last writer wins (overwrite silently).
-    LastWriterWins,
-    /// Three-way merge for text files, reject for binary.
-    MergeIfText,
-    /// Non-overlapping path prefixes per branch.
-    ScopePartition,
-}
-
-// ---------------------------------------------------------------------------
-// Budget / adaptive escalation
-// ---------------------------------------------------------------------------
-
-/// Budget tier for adaptive resource allocation.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub enum BudgetTier {
-    /// Minimal resources, strict limits.
-    #[default]
-    Restricted,
-    /// Standard allocation after proven clean commits.
-    Standard,
-    /// Extended allocation for established agents.
-    Extended,
-}
-
-/// Budget status for a branch.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BudgetStatus {
-    pub branch_id: BranchId,
-    pub tier: BudgetTier,
-    pub clean_commits: u32,
-    pub violations: u32,
-}
-
-// ---------------------------------------------------------------------------
-// Behavioral triggers (fanotify)
-// ---------------------------------------------------------------------------
-
-/// A behavioral trigger fired by the fanotify monitor.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BehavioralTrigger {
-    MassDeletion {
-        count: u32,
-        threshold: u32,
-    },
-    ExcessiveReads {
-        rate: u32,
-        threshold: u32,
-    },
-    CredentialAccess {
-        path: String,
-    },
-    /// Fanotify event queue overflowed — incremental tracking is incomplete.
-    /// The diff engine must fall back to a full upper-dir walk for this branch.
-    QueueOverflow,
-    /// §3.4 G28: Phantom token detected in file write — potential credential leak.
-    /// Fired when fanotify detects a write containing `pt_puzzled_*` patterns.
-    PhantomTokenLeakage {
-        /// File path where the phantom token was written.
-        file_path: String,
-        /// The phantom token prefix detected (first 16 chars max).
-        token_prefix: String,
-    },
-}
-
-// ---------------------------------------------------------------------------
-// Audit (persistent storage)
-// ---------------------------------------------------------------------------
-
-/// Filter for querying audit events.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuditFilter {
-    /// Filter by branch ID.
-    pub branch_id: Option<String>,
-    /// Filter by event type.
-    pub event_type: Option<String>,
-    /// Filter events since this timestamp (RFC 3339).
-    pub since: Option<String>,
-    /// Maximum number of events to return.
-    pub limit: Option<u32>,
-}
-
-// ---------------------------------------------------------------------------
-// Attestation (§3.1 — Cryptographic Attestation of Governance)
-// ---------------------------------------------------------------------------
-
-/// Identity of the agent that produced a governance event.
-///
-/// Included in attestation records for third-party verifiability.
-/// Contains only metadata (UID, profile, SELinux context) — no PII.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentIdentity {
-    /// POSIX UID of the agent process.
-    pub uid: u32,
-    /// Agent profile name (e.g., "restricted", "standard").
-    pub profile: String,
-    /// SELinux context if available (e.g., "puzzlepod_t:s0:c42,c99").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selinux_context: Option<String>,
-    /// Agent framework if reported by SDK (e.g., "langchain", "crewai").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub framework: Option<String>,
-}
-
-/// Governance decision recorded in an attestation record.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GovernanceDecision {
-    Approved,
-    Rejected,
-    Rollback,
-    Violation,
-    Escape,
-    Killed,
-    Created,
-}
-
-impl std::fmt::Display for GovernanceDecision {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Approved => write!(f, "approved"),
-            Self::Rejected => write!(f, "rejected"),
-            Self::Rollback => write!(f, "rollback"),
-            Self::Violation => write!(f, "violation"),
-            Self::Escape => write!(f, "escape"),
-            Self::Killed => write!(f, "killed"),
-            Self::Created => write!(f, "created"),
-        }
-    }
-}
-
-/// Merkle tree inclusion proof for a single attestation record.
-///
-/// Given the leaf hash, the proof hashes, and the root hash at `tree_size`,
-/// a verifier can confirm that the record exists in the log without
-/// downloading the entire tree.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InclusionProof {
-    /// Index of the leaf in the Merkle tree.
-    pub leaf_index: u64,
-    /// Tree size at the time the proof was generated.
-    pub tree_size: u64,
-    /// Sibling hashes from leaf to root (each 32 bytes, hex-encoded).
-    pub proof_hashes: Vec<String>,
-}
-
-/// Merkle tree consistency proof between two tree sizes.
-///
-/// Proves that the log at `new_size` is a strict append-only extension
-/// of the log at `old_size` — no records were deleted or modified.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConsistencyProof {
-    /// Tree size of the earlier checkpoint.
-    pub old_size: u64,
-    /// Tree size of the later checkpoint.
-    pub new_size: u64,
-    /// Proof hashes (each 32 bytes, hex-encoded).
-    pub proof_hashes: Vec<String>,
 }
 
 #[cfg(test)]
@@ -1269,6 +359,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         };
         let json = serde_json::to_string(&change).unwrap();
         let back: FileChange = serde_json::from_str(&json).unwrap();
@@ -1290,6 +382,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         };
         assert_eq!(change.size, 0);
         assert!(change.checksum.is_empty());
@@ -1298,14 +392,13 @@ mod tests {
     /// G28: BranchId::From<String> must always validate, not just debug_assert.
     #[test]
     fn test_g28_branch_id_from_validates() {
-        let source = include_str!("lib.rs");
-        let prod_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let source = include_str!("branch.rs");
 
         // Find the From<String> impl
-        let from_impl = prod_source
+        let from_impl = source
             .find("fn from(s: String) -> Self")
             .expect("From<String> impl must exist for BranchId");
-        let from_block = &prod_source[from_impl..];
+        let from_block = &source[from_impl..];
         let from_end = from_block.find("\n}").unwrap_or(from_block.len());
         let from_body = &from_block[..from_end];
 
@@ -1906,7 +999,7 @@ mod tests {
             upper_dir: PathBuf::from("/var/lib/puzzled/branches/info-test/upper"),
             work_dir: PathBuf::from("/var/lib/puzzled/branches/info-test/work"),
             state: BranchState::Active,
-            created_at: Utc::now(),
+            created_at: chrono::Utc::now(),
             expires_at: None,
             pid: Some(12345),
             uid: 1000,
@@ -2033,6 +1126,8 @@ mod tests {
                     new_mode: None,
                     timestamp: None,
                     target: None,
+                    entropy: None,
+                    has_base64_blocks: None,
                 };
                 let json = serde_json::to_string(&change).unwrap();
                 let back: FileChange = serde_json::from_str(&json).unwrap();
@@ -2154,12 +1249,11 @@ mod tests {
     /// on extreme delta values.
     #[test]
     fn test_s48_trust_score_saturating() {
-        let source = include_str!("lib.rs");
-        // Find the apply_delta method in the full source (it's defined after
-        // the test module, so we cannot use the split-by-cfg(test) trick).
+        let source = include_str!("trust.rs");
+        // Find the apply_delta method
         let fn_start = source
             .find("pub fn apply_delta")
-            .expect("apply_delta function must exist in lib.rs");
+            .expect("apply_delta function must exist in trust.rs");
         let fn_block = &source[fn_start..];
         let fn_end = fn_block[1..]
             .find("\n    pub fn ")
@@ -2376,11 +1470,8 @@ mod tests {
     /// trust scores exceeding the expected 0-100 range before the i32 cast.
     #[test]
     fn test_f26_trust_score_has_debug_assert() {
-        let source = include_str!("lib.rs");
+        let source = include_str!("trust.rs");
 
-        // Find the actual apply_delta implementation (the last one, which is
-        // the production code — earlier occurrences are in tests).
-        // Search for "pub fn apply_delta" and check the function body.
         let mut found = false;
         let lines: Vec<&str> = source.lines().collect();
         for (i, line) in lines.iter().enumerate() {
@@ -2449,7 +1540,7 @@ mod tests {
 
     #[test]
     fn h97_validate_doc_comment_documents_caller_obligation() {
-        let source = include_str!("lib.rs");
+        let source = include_str!("profile.rs");
         assert!(
             source.contains("Callers MUST call `validate()` after deserialization"),
             "H97: ResourceLimits::validate() must document that callers MUST call it after deserialization"
@@ -2503,490 +1594,4 @@ mod tests {
             errors
         );
     }
-}
-
-// ---------------------------------------------------------------------------
-// Governance significance classification
-// ---------------------------------------------------------------------------
-
-/// Determine which audit event types are governance-significant and
-/// should receive attestation signatures.
-///
-/// Governance-significant events are those that represent material state
-/// transitions or security incidents. High-frequency operational events
-/// (e.g., `exec_gated`, `connect_gated`) are excluded to avoid excessive
-/// attestation overhead.
-pub fn is_governance_significant(event_type: &str) -> bool {
-    matches!(
-        event_type,
-        "branch_created"
-            | "branch_committed"
-            | "branch_rolled_back"
-            | "policy_violation"
-            | "commit_rejected"
-            | "sandbox_escape"
-            | "behavioral_trigger"
-            | "agent_killed"
-    )
-}
-
-// ---------------------------------------------------------------------------
-// Merkle tree crypto utilities (A-M1: deduplicated from attestation.rs + puzzlectl)
-// ---------------------------------------------------------------------------
-
-/// Shared Merkle tree cryptographic functions used by both `puzzled` (attestation)
-/// and `puzzlectl` (verification). Domain-separated hashing per RFC 6962.
-pub mod merkle {
-    use sha2::{Digest, Sha256};
-
-    /// Domain separation prefix for leaf nodes (RFC 6962 §2.1).
-    const LEAF_PREFIX: u8 = 0x00;
-    /// Domain separation prefix for internal nodes (RFC 6962 §2.1).
-    const NODE_PREFIX: u8 = 0x01;
-
-    /// Compute domain-separated leaf hash: SHA-256(0x00 || data).
-    pub fn hash_leaf(data: &[u8]) -> [u8; 32] {
-        let mut hasher = Sha256::new();
-        hasher.update([LEAF_PREFIX]);
-        hasher.update(data);
-        let result = hasher.finalize();
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&result);
-        hash
-    }
-
-    /// Compute domain-separated internal node hash: SHA-256(0x01 || left || right).
-    pub fn hash_node(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
-        let mut hasher = Sha256::new();
-        hasher.update([NODE_PREFIX]);
-        hasher.update(left);
-        hasher.update(right);
-        let result = hasher.finalize();
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&result);
-        hash
-    }
-
-    /// Largest power of 2 strictly less than `n`.
-    pub fn largest_power_of_2_less_than(n: u64) -> u64 {
-        if n <= 1 {
-            return 0;
-        }
-        1u64 << (63 - (n - 1).leading_zeros())
-    }
-
-    /// Encode a byte slice as a lowercase hex string.
-    pub fn hex_encode(bytes: &[u8]) -> String {
-        const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
-        let mut s = String::with_capacity(bytes.len() * 2);
-        for &b in bytes {
-            s.push(HEX_CHARS[(b >> 4) as usize] as char);
-            s.push(HEX_CHARS[(b & 0x0f) as usize] as char);
-        }
-        s
-    }
-
-    /// Decode a hex string to bytes.
-    ///
-    /// Returns an error for odd-length strings, non-ASCII input, or invalid hex digits.
-    pub fn hex_decode(s: &str) -> Result<Vec<u8>, String> {
-        // A-M3: Guard against multi-byte UTF-8 input which would cause panics
-        // in the byte-offset indexing below (&s[i..i + 2]).
-        if !s.is_ascii() {
-            return Err("non-ASCII characters in hex string".to_string());
-        }
-        if !s.len().is_multiple_of(2) {
-            return Err("odd-length hex string".to_string());
-        }
-        (0..s.len())
-            .step_by(2)
-            .map(|i| {
-                u8::from_str_radix(&s[i..i + 2], 16)
-                    .map_err(|e| format!("invalid hex at position {}: {}", i, e))
-            })
-            .collect()
-    }
-
-    /// Recompute root hash from an inclusion proof (bottom-up traversal).
-    ///
-    /// Proof elements are consumed bottom-up via `pos` index, matching the
-    /// order they were generated (leaf-level sibling first, root-level last).
-    pub fn compute_root_from_inclusion(
-        leaf_index: u64,
-        tree_size: u64,
-        leaf_hash: &[u8; 32],
-        proof: &[[u8; 32]],
-        pos: &mut usize,
-    ) -> Option<[u8; 32]> {
-        if tree_size <= 1 {
-            return Some(*leaf_hash);
-        }
-        let k = largest_power_of_2_less_than(tree_size);
-        if leaf_index < k {
-            let left = compute_root_from_inclusion(leaf_index, k, leaf_hash, proof, pos)?;
-            let right = *proof.get(*pos)?;
-            *pos += 1;
-            Some(hash_node(&left, &right))
-        } else {
-            let right =
-                compute_root_from_inclusion(leaf_index - k, tree_size - k, leaf_hash, proof, pos)?;
-            let left = *proof.get(*pos)?;
-            *pos += 1;
-            Some(hash_node(&left, &right))
-        }
-    }
-
-    /// Verify a Merkle inclusion proof against an expected root hash.
-    ///
-    /// Returns `Ok(true)` if the proof is valid, `Ok(false)` if the computed root
-    /// doesn't match, or `Err` if the proof is malformed.
-    pub fn verify_merkle_inclusion(
-        leaf_hash: &[u8; 32],
-        proof: &super::InclusionProof,
-        expected_root: &[u8; 32],
-    ) -> Result<bool, String> {
-        let proof_hashes: Vec<[u8; 32]> = proof
-            .proof_hashes
-            .iter()
-            .map(|h| {
-                let bytes = hex_decode(h)?;
-                if bytes.len() != 32 {
-                    return Err(format!("proof hash must be 32 bytes, got {}", bytes.len()));
-                }
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&bytes);
-                Ok(arr)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let mut pos = 0;
-        let computed = compute_root_from_inclusion(
-            proof.leaf_index,
-            proof.tree_size,
-            leaf_hash,
-            &proof_hashes,
-            &mut pos,
-        )
-        .ok_or_else(|| "malformed inclusion proof: insufficient proof hashes".to_string())?;
-
-        // RFC 6962: all proof hashes must be consumed
-        if pos != proof_hashes.len() {
-            return Err(format!(
-                "malformed inclusion proof: {} extra hashes",
-                proof_hashes.len() - pos
-            ));
-        }
-
-        Ok(computed == *expected_root)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Trust (§4.1 -- Graduated Trust with Behavioral Learning)
-// ---------------------------------------------------------------------------
-
-/// Trust level derived from numeric score.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TrustLevel {
-    /// Score 0-19.
-    Untrusted,
-    /// Score 20-39.
-    Restricted,
-    /// Score 40-59.
-    Standard,
-    /// Score 60-79.
-    Elevated,
-    /// Score 80-100.
-    Trusted,
-}
-
-impl TrustLevel {
-    /// Return the trust level corresponding to a numeric score (0-100).
-    pub fn from_score(score: u32) -> Self {
-        match score {
-            0..=19 => TrustLevel::Untrusted,
-            20..=39 => TrustLevel::Restricted,
-            40..=59 => TrustLevel::Standard,
-            60..=79 => TrustLevel::Elevated,
-            _ => TrustLevel::Trusted,
-        }
-    }
-
-    /// Return the string representation.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            TrustLevel::Untrusted => "untrusted",
-            TrustLevel::Restricted => "restricted",
-            TrustLevel::Standard => "standard",
-            TrustLevel::Elevated => "elevated",
-            TrustLevel::Trusted => "trusted",
-        }
-    }
-}
-
-impl std::fmt::Display for TrustLevel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// Persistent trust state for an agent identity (keyed by UID).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrustState {
-    pub uid: u32,
-    pub score: u32,
-    pub level: TrustLevel,
-    pub clean_commits: u32,
-    pub violations: u32,
-    pub last_updated: String,
-    pub override_active: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub override_expires: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub override_level: Option<TrustLevel>,
-}
-
-impl TrustState {
-    /// Create a new trust state with the given initial score.
-    pub fn new(uid: u32, initial_score: u32) -> Self {
-        let score = initial_score.min(100);
-        Self {
-            uid,
-            score,
-            level: TrustLevel::from_score(score),
-            clean_commits: 0,
-            violations: 0,
-            last_updated: chrono::Utc::now().to_rfc3339(),
-            override_active: false,
-            override_expires: None,
-            override_level: None,
-        }
-    }
-
-    /// Return the effective trust level (accounting for overrides).
-    pub fn effective_level(&self) -> TrustLevel {
-        if self.override_active {
-            if let Some(ref expires) = self.override_expires {
-                if let Ok(exp) = chrono::DateTime::parse_from_rfc3339(expires) {
-                    if chrono::Utc::now() < exp {
-                        return self.override_level.unwrap_or(self.level);
-                    }
-                }
-            }
-        }
-        self.level
-    }
-
-    /// Clear the override if it has expired, returning true if cleared.
-    ///
-    /// Call this before persisting state or exposing it via D-Bus to avoid
-    /// stale `override_active: true` in serialized output.
-    pub fn clear_expired_override(&mut self) -> bool {
-        if !self.override_active {
-            return false;
-        }
-        if let Some(ref expires) = self.override_expires {
-            if let Ok(exp) = chrono::DateTime::parse_from_rfc3339(expires) {
-                if chrono::Utc::now() >= exp {
-                    self.override_active = false;
-                    self.override_level = None;
-                    self.override_expires = None;
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    /// Apply a score delta, clamping to [0, 100].
-    /// S48: Uses saturating_add to prevent wrapping on extreme delta values.
-    pub fn apply_delta(&mut self, delta: i32) {
-        // F26: Guard against future changes that might allow score > 100,
-        // which would cause the `as i32` cast to produce unexpected values
-        // if score ever exceeded i32::MAX.
-        debug_assert!(self.score <= 100, "F26: trust score out of expected range");
-        let new_score = (self.score as i32).saturating_add(delta).clamp(0, 100) as u32;
-        self.score = new_score;
-        self.level = TrustLevel::from_score(new_score);
-        self.last_updated = chrono::Utc::now().to_rfc3339();
-    }
-}
-
-/// A trust score change event (appended to history).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrustEvent {
-    pub timestamp: String,
-    pub uid: u32,
-    /// Machine-readable event type (e.g., "commit_approved", "policy_violation").
-    /// Used for structured querying — separate from human-readable `reason`.
-    #[serde(default)]
-    pub event_type: String,
-    pub old_score: u32,
-    pub new_score: u32,
-    pub old_level: TrustLevel,
-    pub new_level: TrustLevel,
-    pub delta: i32,
-    pub reason: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub branch_id: Option<String>,
-}
-
-/// Scoring rule loaded from configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScoringRule {
-    pub event: String,
-    pub delta: i32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_increase_per_day: Option<i32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
-/// Behavioral baseline severity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BaselineSeverity {
-    /// Warning-level deviation.
-    Warning,
-    /// Critical deviation.
-    Critical,
-    /// Fatal deviation (reserved for future use).
-    Fatal,
-}
-
-// ---------------------------------------------------------------------------
-// Provenance (§4.3 — Full Provenance Chain)
-// ---------------------------------------------------------------------------
-
-/// A provenance record linking cause to effect.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProvenanceRecord {
-    pub id: String,
-    pub record_type: ProvenanceType,
-    pub branch_id: String,
-    pub timestamp: String,
-}
-
-/// Provenance record type -- each variant captures a different stage of the chain.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ProvenanceType {
-    /// Reported by agent framework SDK.
-    Request {
-        request_id: String,
-        user_uid: u32,
-        prompt_hash: String,
-    },
-    /// Reported by agent framework SDK.
-    Inference {
-        inference_id: String,
-        request_id: String,
-        model: String,
-        token_count: u32,
-        tool_calls: Vec<String>,
-    },
-    /// From seccomp USER_NOTIF handler + optional SDK enrichment.
-    ToolInvocation {
-        invocation_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        inference_id: Option<String>,
-        tool_path: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        arguments_hash: Option<String>,
-        pid: u32,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        exit_code: Option<i32>,
-        /// Timestamp when the tool invocation started (RFC 3339).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        started_at: Option<String>,
-        /// Timestamp when the tool invocation exited (RFC 3339).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        exited_at: Option<String>,
-    },
-    /// From DiffEngine + fanotify correlation.
-    FileChange {
-        change_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        invocation_id: Option<String>,
-        path: String,
-        kind: FileChangeKind,
-        size: u64,
-        checksum: String,
-    },
-    /// From policy evaluation + CommitManifest.
-    Governance {
-        decision_id: String,
-        change_ids: Vec<String>,
-        policy_version: String,
-        result: String,
-        violations: Vec<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        manifest_hash: Option<String>,
-    },
-}
-
-// ---------------------------------------------------------------------------
-// Identity (§4.5 -- Agent Workload Identity)
-// ---------------------------------------------------------------------------
-
-/// Delegation metadata for sub-agent workflows (§4.5).
-///
-/// Every delegation has a `delegated_by_uid` — at depth 0 this is the human
-/// operator who started the agent; at depth > 0 it is the parent agent's UID.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DelegationMetadata {
-    pub depth: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_branch_id: Option<String>,
-    pub delegated_by_uid: u32,
-}
-
-/// JWT-SVID governance claims.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GovernanceClaims {
-    pub sub: String,
-    pub iss: String,
-    pub aud: Vec<String>,
-    pub iat: i64,
-    pub exp: i64,
-    pub branch_id: String,
-    pub agent_profile: String,
-    pub trust_level: String,
-    pub trust_score: u32,
-    pub governance: GovernanceClaimsMetadata,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub containment: Option<ContainmentClaims>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub delegation: Option<DelegationMetadata>,
-}
-
-/// Metadata about governance enforcement layers embedded in JWT claims.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GovernanceClaimsMetadata {
-    pub enforcement_layers: Vec<String>,
-    pub policy_version: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attestation_chain_hash: Option<String>,
-    pub attestation_chain_length: u32,
-}
-
-/// Containment scope claims embedded in JWT.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ContainmentClaims {
-    pub filesystem_scope: String,
-    pub network_mode: String,
-    pub allowed_domains: Vec<String>,
-    pub exec_allowlist_count: u32,
-}
-
-/// Identity injection mode for puzzle-proxy.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IdentityInjectionMode {
-    JwtSvid,
-    MtlsClientCert,
-    Both,
-    #[default]
-    Disabled,
 }

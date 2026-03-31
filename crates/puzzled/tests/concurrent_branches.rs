@@ -7,77 +7,20 @@
 #![cfg(target_os = "linux")]
 
 use std::fs;
-use std::path::PathBuf;
-
-use std::sync::{Arc, Mutex};
 
 use puzzled_types::BranchState;
+
+mod common;
 
 /// Multiple branches can exist simultaneously
 #[test]
 #[ignore] // Requires root on Linux
 fn test_multiple_concurrent_branches() {
     let dir = tempfile::tempdir().unwrap();
-    let branch_root = dir.path().join("branches");
     let base_path = dir.path().join("workspace");
-    let profiles_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("policies")
-        .join("profiles");
-    let policies_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("policies")
-        .join("rules");
-
-    fs::create_dir_all(&branch_root).unwrap();
     fs::create_dir_all(&base_path).unwrap();
 
-    let config = puzzled::config::DaemonConfig {
-        branch_root: branch_root.clone(),
-        profiles_dir: profiles_dir.clone(),
-        policies_dir: policies_dir.clone(),
-        max_branches: 64,
-        bus_type: "session".to_string(),
-        fs_type: "ext4".to_string(),
-        log_level: "debug".to_string(),
-        watchdog_timeout_secs: 30,
-        ..Default::default()
-    };
-
-    let mut profile_loader = puzzled::profile::ProfileLoader::new(profiles_dir);
-    profile_loader.load_all().unwrap();
-
-    let policy_engine = puzzled::policy::PolicyEngine::new(policies_dir);
-    policy_engine.reload().unwrap();
-
-    let wal_dir = branch_root.join("wal");
-    puzzled::wal::WriteAheadLog::init(&wal_dir).unwrap();
-    let wal = puzzled::wal::WriteAheadLog::new(wal_dir);
-
-    let audit = puzzled::audit::AuditLogger::new();
-
-    let conflict_detector = Arc::new(Mutex::new(puzzled::conflict::ConflictDetector::new()));
-    let budget_manager = Arc::new(Mutex::new(puzzled::budget::BudgetManager::new()));
-
-    let seccomp_handler = puzzled::seccomp_handler::SeccompNotifHandler::spawn();
-    let manager = puzzled::branch::BranchManager::new(
-        config,
-        profile_loader,
-        policy_engine,
-        wal,
-        Arc::new(audit),
-        None,
-        conflict_detector,
-        budget_manager,
-        Some(seccomp_handler),
-        None,
-    );
+    let manager = common::make_manager(dir.path());
 
     // Create 3 branches
     let b1 = manager
@@ -124,23 +67,13 @@ fn test_multiple_concurrent_branches() {
 #[test]
 #[ignore] // Requires root on Linux
 fn test_max_branches_enforced() {
+    use std::sync::{Arc, Mutex};
+
     let dir = tempfile::tempdir().unwrap();
     let branch_root = dir.path().join("branches");
     let base_path = dir.path().join("workspace");
-    let profiles_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("policies")
-        .join("profiles");
-    let policies_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("policies")
-        .join("rules");
+    let profiles_dir = common::profiles_dir();
+    let policies_dir = common::policies_dir();
 
     fs::create_dir_all(&branch_root).unwrap();
     fs::create_dir_all(&base_path).unwrap();
@@ -150,9 +83,9 @@ fn test_max_branches_enforced() {
         profiles_dir: profiles_dir.clone(),
         policies_dir: policies_dir.clone(),
         max_branches: 2, // Small limit for testing
-        bus_type: "session".to_string(),
-        fs_type: "ext4".to_string(),
-        log_level: "debug".to_string(),
+        bus_type: puzzled::config::BusType::Session,
+        fs_type: puzzled::config::FsType::Ext4,
+        log_level: puzzled::config::LogLevel::Debug,
         watchdog_timeout_secs: 30,
         ..Default::default()
     };

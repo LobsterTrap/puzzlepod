@@ -29,6 +29,8 @@ fn sample_changes() -> Vec<FileChange> {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         FileChange {
             path: PathBuf::from("README.md"),
@@ -40,6 +42,8 @@ fn sample_changes() -> Vec<FileChange> {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         FileChange {
             path: PathBuf::from("old_config.yaml"),
@@ -51,6 +55,8 @@ fn sample_changes() -> Vec<FileChange> {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
     ]
 }
@@ -95,6 +101,8 @@ fn test_sign_verify_roundtrip_single_file() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let manifest = ima.sign_commit(&branch_id, &changes).unwrap();
@@ -132,6 +140,8 @@ fn test_sign_verify_roundtrip_all_change_kinds() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         FileChange {
             path: PathBuf::from("modified.txt"),
@@ -143,6 +153,8 @@ fn test_sign_verify_roundtrip_all_change_kinds() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         FileChange {
             path: PathBuf::from("deleted.txt"),
@@ -154,6 +166,8 @@ fn test_sign_verify_roundtrip_all_change_kinds() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         FileChange {
             path: PathBuf::from("metadata.txt"),
@@ -165,6 +179,8 @@ fn test_sign_verify_roundtrip_all_change_kinds() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         FileChange {
             path: PathBuf::from("renamed.txt"),
@@ -176,6 +192,8 @@ fn test_sign_verify_roundtrip_all_change_kinds() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
     ];
 

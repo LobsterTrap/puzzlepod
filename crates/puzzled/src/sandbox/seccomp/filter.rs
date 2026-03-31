@@ -14,8 +14,7 @@ use crate::error::Result;
 ///
 /// In Permissive mode this list is ignored — all non-denied, non-notified
 /// syscalls are allowed by default.
-#[cfg(target_os = "linux")]
-const ALLOW_SYSCALLS: &[&str] = &[
+pub(crate) const ALLOW_SYSCALLS: &[&str] = &[
     // Core I/O
     "read",
     "write",
@@ -190,11 +189,17 @@ const ALLOW_SYSCALLS: &[&str] = &[
     "timer_delete",
 ];
 
+/// Base syscalls gated via USER_NOTIF (daemon-mediated).
+/// clone/clone3 are added conditionally at runtime when the BPF clone guard
+/// is not active.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) const BASE_NOTIFY_SYSCALLS: &[&str] = &["execve", "execveat", "connect", "bind"];
+
 /// Escape-vector syscalls killed unconditionally in both Permissive and Strict
 /// modes. KillProcess is used instead of EPERM because a denied escape-vector
 /// syscall indicates a compromised or malicious agent.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-pub(super) const DENY_SYSCALLS: &[&str] = &[
+pub(crate) const DENY_SYSCALLS: &[&str] = &[
     "ptrace",
     "kexec_load",
     "kexec_file_load",
@@ -252,6 +257,9 @@ pub(super) const DENY_SYSCALLS: &[&str] = &[
     "memfd_secret",
     // Container/namespace escape.
     "chroot",
+    // Hostname manipulation — no legitimate agent use; UTS NS provides additional isolation.
+    "sethostname",
+    "setdomainname",
     // Time manipulation attacks (Kerberos replay, log tampering, cert bypass).
     "settimeofday",
     "clock_settime",
@@ -446,7 +454,7 @@ impl super::SeccompBuilder {
         }
 
         // ── Tier 2: USER_NOTIF (both modes) ──────────────────────────────
-        let mut notify_syscalls: Vec<&str> = vec!["execve", "execveat", "connect", "bind"];
+        let mut notify_syscalls: Vec<&str> = BASE_NOTIFY_SYSCALLS.to_vec();
         if !self.bpf_clone_guard_active {
             tracing::warn!(
                 "BPF clone guard not active — adding clone3/clone to seccomp USER_NOTIF \
@@ -516,5 +524,28 @@ impl super::SeccompBuilder {
         Err(crate::error::PuzzledError::Sandbox(
             "seccomp requires Linux".to_string(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    fn deny_syscall_count_matches_docs() {
+        use super::DENY_SYSCALLS;
+
+        // Security guide documents this count. Update both if adding/removing syscalls.
+        #[cfg(target_arch = "x86_64")]
+        assert_eq!(
+            DENY_SYSCALLS.len(),
+            74,
+            "update docs/security-guide.md if this changes"
+        );
+        #[cfg(target_arch = "aarch64")]
+        assert_eq!(
+            DENY_SYSCALLS.len(),
+            73,
+            "update docs/security-guide.md if this changes"
+        );
     }
 }

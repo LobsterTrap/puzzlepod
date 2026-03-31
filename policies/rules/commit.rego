@@ -421,34 +421,81 @@ violations[v] if {
     }
 }
 
+# --- Cross-file combination rules ---
+# These require multiple changes in input.changes; paths are normalized like other rules
+# (trim leading "/", lowercase) so relative and absolute paths match consistently.
+
+# Reject changesets that add or touch both a shared library (.so) and ld.so configuration
+# (preload / ld.so.conf.d) — possible LD_PRELOAD persistence attack.
+
+violations[v] if {
+    some lib_change in input.changes
+    endswith(lower(lib_change.path), ".so")
+    some preload_change in input.changes
+    p := trim_left(preload_change.path, "/")
+    startswith(lower(p), "etc/ld.so")
+    v := {
+        "rule": "deny_preload_with_library",
+        "message": sprintf("changeset contains both a shared library (%s) and an ld.so configuration (%s) — possible LD_PRELOAD persistence attack", [lib_change.path, preload_change.path]),
+        "severity": "error",
+        "file": preload_change.path,
+    }
+}
+
+# Reject changesets with an executable file (any owner/group/other execute bit) and a
+# cron or systemd unit path — possible persistence attack.
+# Requires new_mode on the executable change (from diff / FileChange); if absent, this rule does not apply.
+
+cron_or_systemd_path(path) if {
+    p := trim_left(path, "/")
+    startswith(lower(p), "etc/cron")
+}
+
+cron_or_systemd_path(path) if {
+    p := trim_left(path, "/")
+    startswith(lower(p), "etc/systemd/system/")
+}
+
+violations[v] if {
+    some exec_change in input.changes
+    exec_change.new_mode != null
+    bits.and(to_number(exec_change.new_mode), 73) > 0 # 0o111 = any execute bit
+    some sched_change in input.changes
+    cron_or_systemd_path(sched_change.path)
+    v := {
+        "rule": "deny_script_with_cron",
+        "message": sprintf("changeset contains both an executable (%s) and a scheduler entry (%s) — possible persistence attack", [exec_change.path, sched_change.path]),
+        "severity": "error",
+        "file": sched_change.path,
+    }
+}
+
 # --- R1: No setuid/setgid bits on new files ---
 # Reject any change where new_mode has setuid (0o4000 = 2048) or setgid (0o2000 = 1024) set.
-# Combined mask: 0o6000 = 3072 (2048 + 1024).
+# Combined mask: 0o6000 = 3072 (2048 + 1024). Use to_number so string or numeric JSON modes work.
+# Note: 6144 would not cover setgid-only (1024); 3072 is the correct S_ISUID|S_ISGID mask.
 
 violations[v] if {
     some change in input.changes
-    change.new_mode
-    is_number(change.new_mode)
-    bits.and(change.new_mode, 3072) > 0
+    change.new_mode != null
+    bits.and(to_number(change.new_mode), 3072) > 0
     v := {
-        "rule": "deny_setuid_setgid",
-        "path": change.path,
-        "severity": "critical",
-        "message": sprintf("setuid/setgid bit set on '%s' (mode %v)", [change.path, change.new_mode]),
+        "rule": "deny_suid_binary",
+        "message": sprintf("file %s has setuid/setgid bits (mode: %v) — elevated privileges not allowed", [change.path, change.new_mode]),
+        "severity": "error",
+        "file": change.path,
     }
 }
 
 # --- H11: No symlinks unless profile allows ---
-# M-rego1: input.profile is a string (profile name), not an object.
-# Symlinks are only allowed for the "privileged" profile.
-# V40: This checks the profile name rather than input.allow_symlinks (from profile YAML).
-# puzzled does not currently pass allow_symlinks in the Rego input. When it does,
-# replace `not input.profile == "privileged"` with `not input.allow_symlinks`.
+# V40: Use input.allow_symlinks (boolean from profile YAML) instead of
+# hardcoding the "privileged" profile name. puzzled passes this field
+# from AgentProfile.allow_symlinks in the Rego input.
 
 violations[v] if {
     some change in input.changes
     change.kind == "Symlink"
-    not input.profile == "privileged"
+    not input.allow_symlinks
     v := {
         "rule": "deny_symlink",
         "message": sprintf("symlink not allowed: %s", [change.path]),
@@ -456,14 +503,14 @@ violations[v] if {
     }
 }
 
-# --- Symlink target validation for privileged profile ---
-# Even when the privileged profile allows symlinks, reject any symlink whose
+# --- Symlink target validation when symlinks are allowed ---
+# Even when the profile allows symlinks, reject any symlink whose
 # target points outside the workspace root (prevents symlink-based escape).
 
 violations[v] if {
     some change in input.changes
     change.kind == "Symlink"
-    input.profile == "privileged"
+    input.allow_symlinks
     input.workspace_root
     change.target
     startswith(change.target, "/")
@@ -563,6 +610,50 @@ violations[v] if {
         "message": sprintf("F10: absolute path '%s' requires workspace_root to be set", [change.path]),
         "severity": "critical",
     }
+}
+
+# --- Content inspection: high-entropy file detection (opt-in) ---
+# Gated behind input.profile_config.content_inspection_enabled.
+
+deny_high_entropy contains violation if {
+    input.profile_config.content_inspection_enabled == true
+    some change in input.changes
+    change.entropy != null
+    change.entropy > 4.5
+    not endswith(change.path, ".bin")
+    not endswith(change.path, ".gz")
+    not endswith(change.path, ".zip")
+    not endswith(change.path, ".png")
+    not endswith(change.path, ".jpg")
+    violation := {
+        "rule": "deny_high_entropy",
+        "message": sprintf("file %s has high entropy (%.2f > 4.5) — possible encoded/encrypted content", [change.path, change.entropy]),
+        "severity": "warning",
+        "file": change.path,
+    }
+}
+
+violations[v] if {
+    some v in deny_high_entropy
+}
+
+# --- Content inspection: base64 block detection (opt-in) ---
+
+deny_base64_blocks contains violation if {
+    input.profile_config.content_inspection_enabled == true
+    some change in input.changes
+    change.has_base64_blocks == true
+    not endswith(change.path, ".bin")
+    violation := {
+        "rule": "deny_base64_blocks",
+        "message": sprintf("file %s contains base64 blocks > 64 chars — possible encoded data exfiltration", [change.path]),
+        "severity": "warning",
+        "file": change.path,
+    }
+}
+
+violations[v] if {
+    some v in deny_base64_blocks
 }
 
 # --- §3.4 G27: Reject phantom tokens in commit changeset ---

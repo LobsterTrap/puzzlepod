@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-mod filter;
+pub(crate) mod filter;
 mod notif;
 mod procmem;
 mod validate;
@@ -90,6 +90,9 @@ const DAEMON_DENY_SYSCALLS: &[&str] = &[
     // §3.4 G2: memfd_secret (kernel 5.14+) — similar bypass vector.
     "memfd_secret",
     "chroot",
+    // Hostname manipulation — no legitimate daemon use.
+    "sethostname",
+    "setdomainname",
     // Time manipulation attacks.
     "settimeofday",
     "clock_settime",
@@ -704,8 +707,14 @@ mod tests {
         };
 
         let exec_count = std::sync::atomic::AtomicU64::new(0);
-        let result =
-            SeccompBuilder::handle_notification_counted(3, &profile, &exec_count, 100, None);
+        let result = SeccompBuilder::handle_notification_counted(
+            3,
+            &profile,
+            &exec_count,
+            100,
+            None,
+            std::time::Instant::now(),
+        );
         assert!(
             result.is_err(),
             "handle_notification_counted should return error on non-Linux"

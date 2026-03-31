@@ -71,7 +71,7 @@ impl ConflictDetector {
     /// Create a new conflict detector with default Reject strategy.
     pub fn new() -> Self {
         // M3-CQ4: Log that conflict detection state is not persisted.
-        tracing::warn!(
+        tracing::debug!(
             "Conflict detection state is not persisted across restarts; \
              committed_changes will be empty after daemon restart"
         );
@@ -87,7 +87,7 @@ impl ConflictDetector {
     /// Create a new conflict detector with a specific resolution strategy.
     pub fn with_resolution(resolution: ConflictResolution) -> Self {
         // M3-CQ4: Log that conflict detection state is not persisted.
-        tracing::warn!(
+        tracing::debug!(
             "Conflict detection state is not persisted across restarts; \
              committed_changes will be empty after daemon restart"
         );
@@ -526,6 +526,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
         let changes_b = vec![FileChange {
             path: PathBuf::from("file_b.txt"),
@@ -537,6 +539,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         detector.register_changes(&branch_a, &base, &changes_a);
@@ -563,6 +567,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         };
 
         detector.register_changes(&branch_a, &base, std::slice::from_ref(&change));
@@ -590,6 +596,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         };
 
         detector.register_changes(&branch_a, &base, std::slice::from_ref(&change));
@@ -644,6 +652,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         };
 
         let conflicts = detector.check_conflicts_with_time(
@@ -682,6 +692,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         };
 
         let conflicts = detector.check_conflicts_with_time(
@@ -940,6 +952,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             FileChange {
                 path: PathBuf::from("src/lib.rs"),
@@ -951,6 +965,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
         ];
         let changes_b = vec![
@@ -964,6 +980,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             FileChange {
                 path: PathBuf::from("docs/guide.md"),
@@ -975,6 +993,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
         ];
 
@@ -1012,6 +1032,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         };
         let change_b = FileChange {
             path: PathBuf::from("config.yaml"),
@@ -1023,6 +1045,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         };
 
         detector.register_changes(&branch_a, &base, &[change_a]);
@@ -1063,6 +1087,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         };
         // branch_b also touches "src/subdir" (e.g., modifying a file causes
         // OverlayFS copy-up of the directory — tracked at the same path)
@@ -1076,6 +1102,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         };
 
         detector.register_changes(&branch_a, &base, &[delete_dir]);

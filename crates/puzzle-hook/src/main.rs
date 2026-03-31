@@ -25,9 +25,14 @@
 use std::collections::HashMap;
 use std::io::Read;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
+
+/// Maximum time to wait for a D-Bus method call before failing.
+/// Prevents the hook from stalling the container runtime indefinitely.
+const DBUS_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 // ---------------------------------------------------------------------------
 // OCI container state (read from stdin)
@@ -172,19 +177,23 @@ async fn call_attach_governance(branch_id: &str, pid: u32, container_id: &str) -
     let connection = connect_dbus().await?;
 
     // Call AttachGovernance(branch_id: s, pid: u, container_id: s) -> b
-    let reply: bool = connection
-        .call_method(
+    // Wrapped in a timeout to prevent stalling the container runtime indefinitely.
+    let reply: bool = tokio::time::timeout(
+        DBUS_CALL_TIMEOUT,
+        connection.call_method(
             Some(DBUS_SERVICE),
             DBUS_PATH,
             Some(DBUS_INTERFACE),
             "AttachGovernance",
             &(branch_id, pid, container_id),
-        )
-        .await
-        .context("D-Bus call to AttachGovernance failed")?
-        .body()
-        .deserialize()
-        .context("failed to deserialize AttachGovernance response")?;
+        ),
+    )
+    .await
+    .context("D-Bus call to AttachGovernance timed out (30s limit)")?
+    .context("D-Bus call to AttachGovernance failed")?
+    .body()
+    .deserialize()
+    .context("failed to deserialize AttachGovernance response")?;
 
     if !reply {
         bail!("AttachGovernance returned false for branch '{}'", branch_id);
@@ -201,19 +210,23 @@ async fn call_trigger_governance(branch_id: &str) -> Result<()> {
     let connection = connect_dbus().await?;
 
     // Call TriggerGovernance(branch_id: s) -> s (JSON result)
-    let reply: String = connection
-        .call_method(
+    // Wrapped in a timeout to prevent stalling the container runtime indefinitely.
+    let reply: String = tokio::time::timeout(
+        DBUS_CALL_TIMEOUT,
+        connection.call_method(
             Some(DBUS_SERVICE),
             DBUS_PATH,
             Some(DBUS_INTERFACE),
             "TriggerGovernance",
             &(branch_id,),
-        )
-        .await
-        .context("D-Bus call to TriggerGovernance failed")?
-        .body()
-        .deserialize()
-        .context("failed to deserialize TriggerGovernance response")?;
+        ),
+    )
+    .await
+    .context("D-Bus call to TriggerGovernance timed out (30s limit)")?
+    .context("D-Bus call to TriggerGovernance failed")?
+    .body()
+    .deserialize()
+    .context("failed to deserialize TriggerGovernance response")?;
 
     // Print the governance result so it's visible in the terminal
     eprintln!(

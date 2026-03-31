@@ -41,6 +41,7 @@ pub enum AbiVersion {
     #[default]
     V4,
     V5,
+    V6,
 }
 
 impl<'de> Deserialize<'de> for AbiVersion {
@@ -55,9 +56,10 @@ impl<'de> Deserialize<'de> for AbiVersion {
             "V3" => Ok(AbiVersion::V3),
             "V4" => Ok(AbiVersion::V4),
             "V5" => Ok(AbiVersion::V5),
+            "V6" => Ok(AbiVersion::V6),
             other => Err(serde::de::Error::unknown_variant(
                 other,
-                &["V1", "V2", "V3", "V4", "V5"],
+                &["V1", "V2", "V3", "V4", "V5", "V6"],
             )),
         }
     }
@@ -101,6 +103,17 @@ pub struct LandlockRules {
     /// due to inaccessible paths. Prevents silent Landlock policy weakening.
     #[serde(default)]
     pub strict: bool,
+
+    /// C-1/M-2: TCP ports the agent is allowed to connect to.
+    /// Landlock ABI v4+ (kernel 6.7+). If empty, all ConnectTcp is denied.
+    /// Mirrors sandbox/landlock.rs network ruleset.
+    #[serde(default)]
+    pub connect_tcp_ports: Vec<u16>,
+
+    /// C-1/M-2: TCP ports the agent is allowed to bind to.
+    /// Landlock ABI v4+ (kernel 6.7+). If empty, all BindTcp is denied.
+    #[serde(default)]
+    pub bind_tcp_ports: Vec<u16>,
 }
 
 /// Parse a rules JSON string into a `LandlockRules` struct.
@@ -128,6 +141,14 @@ mod enforce {
             AbiVersion::V3 => ABI::V3,
             AbiVersion::V4 => ABI::V4,
             AbiVersion::V5 => ABI::V5,
+            // M22: V6 maps to crate ABI V5; warn that V6-only features are unavailable.
+            AbiVersion::V6 => {
+                tracing::warn!(
+                    "Landlock ABI V6 requested but crate only supports V5 — \
+                     signal scoping and abstract Unix socket scoping are unavailable"
+                );
+                ABI::V5
+            }
         }
     }
 
@@ -242,18 +263,77 @@ mod enforce {
             }
         }
 
-        // L15: Apply the ruleset -- this is irrevocable.
+        // C-1/M-2: Apply Landlock network rules (ABI v4+, kernel 6.7+).
+        //
+        // Mirrors sandbox/landlock.rs: irrevocable ConnectTcp/BindTcp restrictions
+        // that survive puzzled crash. Without this, Podman-native mode lacks the
+        // kernel-enforced network ACL layer that direct mode provides.
+        if !rules.connect_tcp_ports.is_empty() || !rules.bind_tcp_ports.is_empty() {
+            use landlock::{AccessNet, NetPort};
+
+            let mut net_ruleset = Ruleset::default()
+                .handle_access(AccessNet::ConnectTcp | AccessNet::BindTcp)
+                .map_err(|e| format!("creating Landlock network ruleset: {e}"))?
+                .create()
+                .map_err(|e| format!("creating Landlock network ruleset: {e}"))?;
+
+            for port in &rules.connect_tcp_ports {
+                net_ruleset = net_ruleset
+                    .add_rule(NetPort::new(*port, AccessNet::ConnectTcp))
+                    .map_err(|e| format!("adding Landlock ConnectTcp rule for port {port}: {e}"))?;
+            }
+
+            for port in &rules.bind_tcp_ports {
+                net_ruleset = net_ruleset
+                    .add_rule(NetPort::new(*port, AccessNet::BindTcp))
+                    .map_err(|e| format!("adding Landlock BindTcp rule for port {port}: {e}"))?;
+            }
+
+            // H-24: Apply network ruleset FIRST (broader surface), before
+            // filesystem ruleset (more granular). Both applied pre-exec.
+            let net_status = net_ruleset
+                .restrict_self()
+                .map_err(|e| format!("applying Landlock network ruleset: {e}"))?;
+
+            match net_status.ruleset {
+                RulesetStatus::FullyEnforced => {
+                    eprintln!(
+                        "puzzle-init: Landlock network rules enforced (ConnectTcp: {} ports, BindTcp: {} ports)",
+                        rules.connect_tcp_ports.len(),
+                        rules.bind_tcp_ports.len()
+                    );
+                }
+                RulesetStatus::PartiallyEnforced => {
+                    eprintln!(
+                        "puzzle-init: Landlock network rules partially enforced — \
+                         kernel may not support ABI v4 (requires 6.7+)"
+                    );
+                }
+                RulesetStatus::NotEnforced => {
+                    eprintln!(
+                        "puzzle-init: Landlock network rules not enforced — \
+                         kernel does not support ABI v4 (requires 6.7+). \
+                         Falling back to seccomp + nftables for network gating."
+                    );
+                }
+            }
+        }
+
+        // L15: Apply the filesystem ruleset -- this is irrevocable.
         let status = ruleset
             .restrict_self()
             .map_err(|e| format!("landlock_restrict_self() failed: {e}"))?;
 
         match status.ruleset {
             RulesetStatus::FullyEnforced => {
-                eprintln!("puzzle-init: Landlock fully enforced (ABI {:?})", rules.abi);
+                eprintln!(
+                    "puzzle-init: Landlock filesystem rules fully enforced (ABI {:?})",
+                    rules.abi
+                );
             }
             RulesetStatus::PartiallyEnforced => {
                 eprintln!(
-                    "puzzle-init: Landlock enforced (ABI {:?}, best-effort)",
+                    "puzzle-init: Landlock filesystem rules enforced (ABI {:?}, best-effort)",
                     rules.abi
                 );
             }
@@ -315,6 +395,7 @@ fn run() -> Result<(), String> {
     // by Landlock (the kernel enforces it) and also prevents suid/sgid escalation.
     #[cfg(target_os = "linux")]
     {
+        // SAFETY: prctl with constant args, return value checked. No pointers involved.
         let ret = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
         if ret != 0 {
             return Err(format!(
@@ -332,6 +413,7 @@ fn run() -> Result<(), String> {
     // not the container init tree.
     #[cfg(target_os = "linux")]
     {
+        // SAFETY: getpid() is a read-only query with no side effects.
         let pid = unsafe { libc::getpid() };
         if pid != 1 {
             return Err(format!(
@@ -519,7 +601,7 @@ mod proxy {
         let gateway = &config.gateway;
         let proxy_port = config.proxy_port;
 
-        // Build nft script for IPv4
+        // --- IPv4 NAT table: DNAT intercepted ports to proxy ---
         let mut nft_script = String::new();
 
         // Create table (no NFT_TABLE_F_OWNER flag — table persists after exit)
@@ -537,37 +619,70 @@ mod proxy {
                 port, gateway, proxy_port
             ));
         }
-        // Block QUIC (UDP 443) to force HTTP/HTTPS through the proxy
-        nft_script.push_str("add rule ip puzzlepod_nat output udp dport 443 drop\n");
 
-        // Apply IPv4 rules
+        // Apply IPv4 NAT rules
         apply_nft_script(&nft_path, &nft_script)?;
 
-        // Build and apply IPv6 rules
+        // --- IPv4 filter table: default-deny (C-1 audit fix) ---
+        //
+        // Without this filter table, agents can bypass the proxy by connecting
+        // to non-intercepted TCP ports or using UDP protocols. The NAT table
+        // only redirects traffic on specific ports — everything else passes
+        // through unfiltered.
+        //
+        // This mirrors sandbox/network.rs Gated mode: policy drop, allow only
+        // loopback + proxy traffic (post-DNAT destination) + DNS to gateway +
+        // established/related connections.
+        let filter_script = format!(
+            "add table ip puzzlepod_filter\n\
+             add chain ip puzzlepod_filter output {{ type filter hook output priority 0 ; policy drop ; }}\n\
+             add rule ip puzzlepod_filter output ip daddr 127.0.0.0/8 accept\n\
+             add rule ip puzzlepod_filter output ip daddr {gateway} tcp dport {proxy_port} accept\n\
+             add rule ip puzzlepod_filter output ip daddr {gateway} udp dport 53 accept\n\
+             add rule ip puzzlepod_filter output ct state established,related accept\n\
+             add rule ip puzzlepod_filter output log prefix \"puzzlepod-drop: \" drop\n",
+            gateway = gateway,
+            proxy_port = proxy_port,
+        );
+        apply_nft_script(&nft_path, &filter_script)?;
+
+        // --- IPv6 NAT table ---
+        // IPv6 traffic on intercepted ports is dropped (not redirected) because
+        // IPv6 DNAT requires an IPv6 gateway address not currently provisioned.
+        // Agents using IPv6 destinations on ports 80/443 will get connection failures.
         let mut nft6_script = String::new();
         nft6_script.push_str("add table ip6 puzzlepod_nat\n");
         nft6_script.push_str(
             "add chain ip6 puzzlepod_nat output { type nat hook output priority -100 ; policy accept ; }\n",
         );
         nft6_script.push_str("add rule ip6 puzzlepod_nat output ip6 daddr ::1 accept\n");
-        // IPv6 DNAT (only if gateway looks like an IPv4-mapped IPv6 or actual IPv6)
-        // For pasta networking, IPv6 DNAT to the gateway may not be needed,
-        // but we set it up for defense-in-depth
         for port in &config.ports {
             nft6_script.push_str(&format!(
                 "add rule ip6 puzzlepod_nat output tcp dport {} drop\n",
                 port
             ));
         }
-        nft6_script.push_str("add rule ip6 puzzlepod_nat output udp dport 443 drop\n");
+
+        // --- IPv6 filter table: default-deny (C-1 audit fix) ---
+        nft6_script.push_str("add table ip6 puzzlepod_filter\n");
+        nft6_script.push_str(
+            "add chain ip6 puzzlepod_filter output { type filter hook output priority 0 ; policy drop ; }\n",
+        );
+        nft6_script.push_str("add rule ip6 puzzlepod_filter output ip6 daddr ::1 accept\n");
+        nft6_script
+            .push_str("add rule ip6 puzzlepod_filter output ct state established,related accept\n");
+        nft6_script.push_str(
+            "add rule ip6 puzzlepod_filter output log prefix \"puzzlepod-drop6: \" drop\n",
+        );
 
         apply_nft_script(&nft_path, &nft6_script)?;
 
-        // L8: Verify nftables rules are active by listing the table
+        // L8: Verify nftables rules are active by listing both tables
         verify_nft_rules(&nft_path)?;
 
         eprintln!(
-            "puzzle-init: §3.4 G8: nftables DNAT configured and verified — {} ports redirected to {}:{}",
+            "puzzle-init: nftables DNAT + default-deny configured — \
+             {} ports redirected to {}:{}, all other traffic DROPped",
             config.ports.len(),
             gateway,
             proxy_port
@@ -576,28 +691,53 @@ mod proxy {
         Ok(())
     }
 
-    /// L8: Verify nftables rules were actually loaded by listing the table.
+    /// L8: Verify nftables rules were actually loaded by listing both tables.
     fn verify_nft_rules(nft_path: &str) -> Result<(), String> {
+        // Verify NAT table
         let output = std::process::Command::new(nft_path)
             .args(["list", "table", "ip", "puzzlepod_nat"])
             .output()
-            .map_err(|e| format!("§3.4 L8: nft list table failed to execute: {}", e))?;
+            .map_err(|e| format!("L8: nft list table failed to execute: {}", e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!(
-                "§3.4 L8: nftables rule verification failed — table ip puzzlepod_nat not found \
+                "L8: nftables rule verification failed — table ip puzzlepod_nat not found \
                  (exit {}): {}",
                 output.status.code().unwrap_or(-1),
                 stderr.trim()
             ));
         }
 
-        // Verify the output contains our DNAT chain
         let stdout = String::from_utf8_lossy(&output.stdout);
         if !stdout.contains("dnat to") {
             return Err(
-                "§3.4 L8: nftables verification failed — table exists but contains no DNAT rules"
+                "L8: nftables verification failed — NAT table exists but contains no DNAT rules"
+                    .to_string(),
+            );
+        }
+
+        // C-1: Verify filter table (default-deny)
+        let filter_output = std::process::Command::new(nft_path)
+            .args(["list", "table", "ip", "puzzlepod_filter"])
+            .output()
+            .map_err(|e| format!("L8: nft list filter table failed: {}", e))?;
+
+        if !filter_output.status.success() {
+            let stderr = String::from_utf8_lossy(&filter_output.stderr);
+            return Err(format!(
+                "L8: nftables filter table verification failed — table ip puzzlepod_filter \
+                 not found (exit {}): {}",
+                filter_output.status.code().unwrap_or(-1),
+                stderr.trim()
+            ));
+        }
+
+        let filter_stdout = String::from_utf8_lossy(&filter_output.stdout);
+        if !filter_stdout.contains("policy drop") {
+            return Err(
+                "L8: nftables filter table exists but does not have policy drop — \
+                 default-deny not active"
                     .to_string(),
             );
         }
@@ -826,7 +966,9 @@ mod proxy {
             filter: filter.as_ptr(),
         };
 
-        // SECCOMP_SET_MODE_FILTER = 1, flags = 0
+        // SAFETY: SYS_seccomp with SECCOMP_SET_MODE_FILTER. prog points to a valid
+        // SockFprog with filter.len() entries. filter[] is a stack-allocated array
+        // that outlives this call. Return value is checked.
         let ret = unsafe { libc::syscall(libc::SYS_seccomp, 1u64, 0u64, &prog as *const _) };
         if ret != 0 {
             return Err(format!(
@@ -855,6 +997,7 @@ mod proxy {
         // CAP_LAST_CAP is typically 40-41 on modern kernels; iterate to 63
         // to be future-proof. prctl returns EINVAL for non-existent caps.
         for cap in 0..64u64 {
+            // SAFETY: prctl with constant args. Returns EINVAL for non-existent caps.
             let ret = unsafe { libc::prctl(libc::PR_CAPBSET_DROP, cap, 0, 0, 0) };
             if ret != 0 {
                 let err = std::io::Error::last_os_error();
@@ -866,7 +1009,8 @@ mod proxy {
         }
 
         // 2. Clear ALL ambient capabilities
-        // PR_CAP_AMBIENT = 47, PR_CAP_AMBIENT_CLEAR_ALL = 4
+        // SAFETY: prctl with constant args. Non-fatal on older kernels without
+        // PR_CAP_AMBIENT support. PR_CAP_AMBIENT = 47, PR_CAP_AMBIENT_CLEAR_ALL = 4
         let ret = unsafe { libc::prctl(47, 4, 0, 0, 0) };
         if ret != 0 {
             // Non-fatal — ambient caps may not be supported on older kernels
@@ -912,6 +1056,9 @@ mod proxy {
             },
         ];
 
+        // SAFETY: SYS_capset with v3 header (0x20080522) and 2-element CapData array.
+        // Both structs are #[repr(C)] and match the kernel's __user_cap_header_struct
+        // and __user_cap_data_struct layout. Stack-allocated, outlive this call.
         let ret =
             unsafe { libc::syscall(libc::SYS_capset, &header as *const CapHeader, data.as_ptr()) };
         if ret != 0 {

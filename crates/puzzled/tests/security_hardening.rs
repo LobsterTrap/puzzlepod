@@ -90,7 +90,7 @@ fn test_rollback_rejects_path_outside_root() {
 fn j87_rollback_production_uses_canonicalize_and_starts_with() {
     // J87: Verify production branch.rs contains canonicalize + starts_with
     // in the rollback path, not just testing stdlib behavior in isolation.
-    let source = include_str!("../src/branch.rs");
+    let source = include_str!("../src/branch/mod.rs");
 
     let rollback_start = source
         .find("fn rollback_internal(")
@@ -153,7 +153,7 @@ fn test_base_path_must_be_directory() {
 fn j88_create_branch_production_validates_base_path() {
     // J88: Verify production branch.rs uses is_absolute(), exists(), is_dir()
     // in the create path, not just testing stdlib behavior in isolation.
-    let source = include_str!("../src/branch.rs");
+    let source = include_str!("../src/branch/mod.rs");
 
     let create_start = source
         .find("fn create_branch(")
@@ -337,32 +337,32 @@ fn test_config_validation_max_branches_too_large() {
 
 #[test]
 fn test_config_validation_invalid_log_level() {
-    let config = puzzled::config::DaemonConfig {
-        log_level: "verbose".to_string(),
-        ..Default::default()
-    };
-    let result = config.validate();
-    assert!(result.is_err(), "invalid log_level should be rejected");
+    // Invalid enum values are now rejected at deserialization time.
+    let result = serde_yaml::from_str::<puzzled::config::DaemonConfig>("log_level: verbose");
+    assert!(
+        result.is_err(),
+        "invalid log_level should be rejected by serde"
+    );
 }
 
 #[test]
 fn test_config_validation_invalid_bus_type() {
-    let config = puzzled::config::DaemonConfig {
-        bus_type: "peer".to_string(),
-        ..Default::default()
-    };
-    let result = config.validate();
-    assert!(result.is_err(), "invalid bus_type should be rejected");
+    // Invalid enum values are now rejected at deserialization time.
+    let result = serde_yaml::from_str::<puzzled::config::DaemonConfig>("bus_type: peer");
+    assert!(
+        result.is_err(),
+        "invalid bus_type should be rejected by serde"
+    );
 }
 
 #[test]
 fn test_config_validation_invalid_fs_type() {
-    let config = puzzled::config::DaemonConfig {
-        fs_type: "ntfs".to_string(),
-        ..Default::default()
-    };
-    let result = config.validate();
-    assert!(result.is_err(), "invalid fs_type should be rejected");
+    // Invalid enum values are now rejected at deserialization time.
+    let result = serde_yaml::from_str::<puzzled::config::DaemonConfig>("fs_type: ntfs");
+    assert!(
+        result.is_err(),
+        "invalid fs_type should be rejected by serde"
+    );
 }
 
 #[test]
@@ -434,7 +434,7 @@ fn r23_credentials_no_toctou_permission_window() {
 
 #[test]
 fn r26_dbus_no_silent_serialization_failure() {
-    let source = include_str!("../src/dbus.rs");
+    let source = include_str!("../src/dbus/mod.rs");
     assert!(
         !source.contains("to_string(violations).unwrap_or_default()"),
         "R26: dbus.rs must NOT silently swallow serialization failures with unwrap_or_default()"

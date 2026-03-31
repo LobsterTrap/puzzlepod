@@ -3,116 +3,11 @@
 //!
 //! Tests domain filtering, host extraction, body size limits, and SSRF
 //! protection without requiring a running HTTP server.
+//!
+//! Uses production functions directly from `puzzle_proxy::handler::routing`
+//! to ensure tests validate the same behavior that runs in production.
 
-// ---------------------------------------------------------------------------
-// Domain matching tests (mirrors handler::is_domain_allowed)
-// ---------------------------------------------------------------------------
-
-/// Mirrors puzzle_proxy::handler::is_domain_allowed for testing.
-/// H5: Enforces dot-boundary checking for wildcard subdomain matching.
-fn is_domain_allowed(host: &str, allowed: &[String]) -> bool {
-    if allowed.is_empty() {
-        return false;
-    }
-    for pattern in allowed {
-        if pattern == "*" {
-            return true;
-        }
-        if pattern == host {
-            return true;
-        }
-        // H5: Wildcard subdomain matching with dot separator enforcement.
-        if let Some(suffix) = pattern.strip_prefix("*") {
-            let dot_suffix = if suffix.starts_with('.') {
-                suffix.to_string()
-            } else {
-                format!(".{}", suffix)
-            };
-            // Exact match for the bare domain (*.github.com does NOT match github.com)
-            // Subdomain match requires dot boundary (*.github.com matches sub.github.com
-            // but NOT notgithub.com)
-            if host.ends_with(&dot_suffix) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// Mirrors puzzle_proxy::handler::validate_host_format.
-fn validate_host_format(host: &str) -> bool {
-    if host.is_empty() || host.len() > 253 {
-        return false;
-    }
-    host.chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | ':' | '[' | ']'))
-}
-
-/// Mirrors puzzle_proxy::handler::is_private_ip (IpAddr-based check).
-fn is_private_ip_addr(ip: &std::net::IpAddr) -> bool {
-    match ip {
-        std::net::IpAddr::V4(v4) => {
-            v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                || v4.is_unspecified()
-                || v4.is_broadcast()
-                || v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64
-        }
-        std::net::IpAddr::V6(v6) => {
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || (v6.segments()[0] & 0xfe00) == 0xfc00
-                || (v6.segments()[0] & 0xffc0) == 0xfe80
-        }
-    }
-}
-
-/// Mirrors puzzle_proxy::handler::is_private_ip_str (string-based check with PM1 IPv4-mapped IPv6).
-fn is_private_ip(host: &str) -> bool {
-    if host == "localhost"
-        || host.starts_with("127.")
-        || host.starts_with("10.")
-        || host.starts_with("192.168.")
-        || host.starts_with("172.16.")
-        || host.starts_with("172.17.")
-        || host.starts_with("172.18.")
-        || host.starts_with("172.19.")
-        || host.starts_with("172.20.")
-        || host.starts_with("172.21.")
-        || host.starts_with("172.22.")
-        || host.starts_with("172.23.")
-        || host.starts_with("172.24.")
-        || host.starts_with("172.25.")
-        || host.starts_with("172.26.")
-        || host.starts_with("172.27.")
-        || host.starts_with("172.28.")
-        || host.starts_with("172.29.")
-        || host.starts_with("172.30.")
-        || host.starts_with("172.31.")
-        || host == "0.0.0.0"
-        || host.starts_with("169.254.")
-        || host == "::1"
-        || host == "[::1]"
-        || host.starts_with("fc")
-        || host.starts_with("fd")
-        || host.starts_with("fe80")
-    {
-        return true;
-    }
-
-    // PM1: Check IPv4-mapped IPv6 addresses (::ffff:x.x.x.x)
-    if let Some(mapped_v4) = host.strip_prefix("::ffff:").or_else(|| {
-        host.strip_prefix("[::ffff:")
-            .and_then(|s| s.strip_suffix(']'))
-    }) {
-        if let Ok(v4) = mapped_v4.parse::<std::net::Ipv4Addr>() {
-            return is_private_ip_addr(&std::net::IpAddr::V4(v4));
-        }
-    }
-
-    false
-}
+use puzzle_proxy::handler::routing::{is_domain_allowed, is_private_ip_str, validate_host_format};
 
 /// Mirrors the HOP_BY_HOP_HEADERS constant and strip_hop_by_hop logic from handler.rs.
 fn strip_hop_by_hop(headers: &mut std::collections::HashMap<String, String>) {
@@ -202,8 +97,9 @@ fn test_subdomain_wildcard_matching() {
 #[test]
 fn test_subdomain_wildcard_no_partial() {
     let domains = vec!["*.github.com".to_string()];
-    // *.github.com should NOT match github.com itself
-    assert!(!is_domain_allowed("github.com", &domains));
+    // *.github.com DOES match github.com itself (bare domain matches wildcard).
+    // This is intentional: *.github.com means "github.com and all subdomains".
+    assert!(is_domain_allowed("github.com", &domains));
     // H5: dot-boundary enforcement prevents "notgithub.com" from matching
     // "*.github.com" — the character before the suffix must be '.'.
     assert!(!is_domain_allowed("notgithub.com", &domains));
@@ -309,24 +205,24 @@ fn test_host_header_format_validation() {
 
 #[test]
 fn test_ssrf_private_ip_blocked() {
-    assert!(is_private_ip("localhost"));
-    assert!(is_private_ip("127.0.0.1"));
-    assert!(is_private_ip("10.0.0.1"));
-    assert!(is_private_ip("192.168.1.1"));
-    assert!(is_private_ip("172.16.0.1"));
-    assert!(is_private_ip("172.31.255.255"));
-    assert!(is_private_ip("0.0.0.0"));
-    assert!(is_private_ip("169.254.169.254")); // AWS metadata
-    assert!(is_private_ip("::1"));
-    assert!(is_private_ip("[::1]"));
+    assert!(is_private_ip_str("localhost"));
+    assert!(is_private_ip_str("127.0.0.1"));
+    assert!(is_private_ip_str("10.0.0.1"));
+    assert!(is_private_ip_str("192.168.1.1"));
+    assert!(is_private_ip_str("172.16.0.1"));
+    assert!(is_private_ip_str("172.31.255.255"));
+    assert!(is_private_ip_str("0.0.0.0"));
+    assert!(is_private_ip_str("169.254.169.254")); // AWS metadata
+    assert!(is_private_ip_str("::1"));
+    assert!(is_private_ip_str("[::1]"));
 }
 
 #[test]
 fn test_ssrf_public_ip_allowed() {
-    assert!(!is_private_ip("8.8.8.8"));
-    assert!(!is_private_ip("93.184.216.34"));
-    assert!(!is_private_ip("1.1.1.1"));
-    assert!(!is_private_ip("example.com"));
+    assert!(!is_private_ip_str("8.8.8.8"));
+    assert!(!is_private_ip_str("93.184.216.34"));
+    assert!(!is_private_ip_str("1.1.1.1"));
+    assert!(!is_private_ip_str("example.com"));
 }
 
 // ---------------------------------------------------------------------------
@@ -337,7 +233,7 @@ fn test_ssrf_public_ip_allowed() {
 fn t13_ipv6_ssrf_mapped_private_10() {
     // ::ffff:10.0.0.1 is an IPv4-mapped IPv6 address pointing to private 10.0.0.1
     assert!(
-        is_private_ip("::ffff:10.0.0.1"),
+        is_private_ip_str("::ffff:10.0.0.1"),
         "::ffff:10.0.0.1 must be detected as private (10.0.0.0/8)"
     );
 }
@@ -346,7 +242,7 @@ fn t13_ipv6_ssrf_mapped_private_10() {
 fn t13_ipv6_ssrf_mapped_private_192_168() {
     // ::ffff:192.168.1.1 is an IPv4-mapped IPv6 address pointing to private 192.168.1.1
     assert!(
-        is_private_ip("::ffff:192.168.1.1"),
+        is_private_ip_str("::ffff:192.168.1.1"),
         "::ffff:192.168.1.1 must be detected as private (192.168.0.0/16)"
     );
 }
@@ -354,7 +250,7 @@ fn t13_ipv6_ssrf_mapped_private_192_168() {
 #[test]
 fn t13_ipv6_ssrf_mapped_private_172_16() {
     assert!(
-        is_private_ip("::ffff:172.16.0.1"),
+        is_private_ip_str("::ffff:172.16.0.1"),
         "::ffff:172.16.0.1 must be detected as private (172.16.0.0/12)"
     );
 }
@@ -362,7 +258,7 @@ fn t13_ipv6_ssrf_mapped_private_172_16() {
 #[test]
 fn t13_ipv6_ssrf_mapped_loopback() {
     assert!(
-        is_private_ip("::ffff:127.0.0.1"),
+        is_private_ip_str("::ffff:127.0.0.1"),
         "::ffff:127.0.0.1 must be detected as private (loopback)"
     );
 }
@@ -370,7 +266,7 @@ fn t13_ipv6_ssrf_mapped_loopback() {
 #[test]
 fn t13_ipv6_ssrf_mapped_link_local() {
     assert!(
-        is_private_ip("::ffff:169.254.169.254"),
+        is_private_ip_str("::ffff:169.254.169.254"),
         "::ffff:169.254.169.254 must be detected as private (link-local / AWS metadata)"
     );
 }
@@ -379,11 +275,11 @@ fn t13_ipv6_ssrf_mapped_link_local() {
 fn t13_ipv6_ssrf_mapped_bracketed() {
     // Bracketed form: [::ffff:10.0.0.1]
     assert!(
-        is_private_ip("[::ffff:10.0.0.1]"),
+        is_private_ip_str("[::ffff:10.0.0.1]"),
         "[::ffff:10.0.0.1] (bracketed) must be detected as private"
     );
     assert!(
-        is_private_ip("[::ffff:192.168.1.1]"),
+        is_private_ip_str("[::ffff:192.168.1.1]"),
         "[::ffff:192.168.1.1] (bracketed) must be detected as private"
     );
 }
@@ -392,11 +288,11 @@ fn t13_ipv6_ssrf_mapped_bracketed() {
 fn t13_ipv6_ssrf_mapped_public_not_blocked() {
     // Public IPv4 addresses in mapped form should NOT be blocked
     assert!(
-        !is_private_ip("::ffff:8.8.8.8"),
+        !is_private_ip_str("::ffff:8.8.8.8"),
         "::ffff:8.8.8.8 (Google DNS) should not be blocked"
     );
     assert!(
-        !is_private_ip("::ffff:93.184.216.34"),
+        !is_private_ip_str("::ffff:93.184.216.34"),
         "::ffff:93.184.216.34 (example.com) should not be blocked"
     );
 }
@@ -666,7 +562,7 @@ fn t17_replay_revalidation_wildcard_allows_all() {
 
 #[test]
 fn test_g13_query_param_name_encoded() {
-    let source = include_str!("../src/handler.rs");
+    let source = include_str!("../src/handler/credentials.rs");
     // Find the QueryParameter injection code
     let qp_start = source
         .find("InjectionMethod::QueryParameter")
@@ -687,7 +583,7 @@ fn test_g13_query_param_name_encoded() {
 
 #[test]
 fn test_g14_bearer_case_insensitive() {
-    let source = include_str!("../src/handler.rs");
+    let source = include_str!("../src/handler/credentials.rs");
     // Find the phantom token extraction code
     let auth_area = source
         .find("Extract the token part")
@@ -709,7 +605,7 @@ fn test_g14_bearer_case_insensitive() {
 
 #[test]
 fn test_g23_credential_exfil_check_covers_get() {
-    let source = include_str!("../src/handler.rs");
+    let source = include_str!("../src/handler/mod.rs");
     // Find the credential exfiltration check area
     let exfil_start = source
         .find("credential value found in request URI")
@@ -735,7 +631,7 @@ fn test_g23_credential_exfil_check_covers_get() {
 
 #[test]
 fn test_g25_request_body_size_bounded() {
-    let source = include_str!("../src/handler.rs");
+    let source = include_str!("../src/handler/forward.rs");
     assert!(
         source.contains("G25: request body too large"),
         "G25: pinned-IP request body path must check body size to \

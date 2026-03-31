@@ -71,7 +71,9 @@ impl SecureRegion {
         // Total = leading guard + usable + trailing guard
         let total_size = usable_size + 2 * page_size;
 
-        // Allocate anonymous private memory
+        // SAFETY: mmap with MAP_ANONYMOUS|MAP_PRIVATE allocates zeroed private memory.
+        // NULL base lets the kernel choose the address. fd=-1, offset=0 for anonymous.
+        // Return value is checked for MAP_FAILED before use.
         let base_ptr = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
@@ -89,7 +91,9 @@ impl SecureRegion {
         }
         let base_ptr = base_ptr as *mut u8;
 
-        // Set guard pages to PROT_NONE (any access = SIGSEGV)
+        // SAFETY: mprotect on regions within our mmap allocation. Pointers are valid
+        // and within bounds (leading guard = base_ptr, trailing = base_ptr + page_size + usable_size).
+        // On failure, we munmap the entire allocation before returning.
         unsafe {
             // Leading guard page
             if libc::mprotect(base_ptr as *mut libc::c_void, page_size, libc::PROT_NONE) != 0 {
@@ -108,9 +112,11 @@ impl SecureRegion {
             }
         }
 
+        // SAFETY: base_ptr.add(page_size) is within the mmap'd region (total_size > page_size).
         let usable_ptr = unsafe { base_ptr.add(page_size) };
 
-        // Lock usable region in RAM (prevent swapping)
+        // SAFETY: usable_ptr points to page-aligned memory within our allocation.
+        // Lock usable region in RAM (prevent swapping).
         let mlock_result = unsafe { libc::mlock(usable_ptr as *const libc::c_void, usable_size) };
         if mlock_result != 0 {
             let err = std::io::Error::last_os_error();
@@ -132,7 +138,8 @@ impl SecureRegion {
             );
         }
 
-        // Exclude from core dumps
+        // SAFETY: Advisory only — MADV_DONTDUMP tells the kernel to exclude this
+        // region from core dumps. usable_ptr and usable_size are valid.
         unsafe {
             libc::madvise(
                 usable_ptr as *mut libc::c_void,
@@ -162,6 +169,7 @@ impl SecureRegion {
             data.len(),
             self.usable_size
         );
+        // SAFETY: Bounds checked by assert above. dst is within the usable region.
         unsafe {
             let dst = self.base_ptr.add(self.usable_offset + offset);
             std::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
@@ -180,6 +188,8 @@ impl SecureRegion {
             len,
             self.usable_size
         );
+        // SAFETY: Bounds checked by assert above. src is within the usable region.
+        // The returned slice borrows &self, so the region cannot be dropped while in use.
         unsafe {
             let src = self.base_ptr.add(self.usable_offset + offset);
             std::slice::from_raw_parts(src, len)
@@ -192,6 +202,8 @@ impl SecureRegion {
             offset + len <= self.usable_size,
             "SecureRegion::zeroize_slot out of bounds"
         );
+        // SAFETY: Bounds checked by assert above. write_volatile ensures the compiler
+        // cannot elide the zeroing. compiler_fence after the block prevents reordering.
         unsafe {
             let ptr = self.base_ptr.add(self.usable_offset + offset);
             for i in 0..len {
@@ -210,7 +222,8 @@ impl SecureRegion {
 
 impl Drop for SecureRegion {
     fn drop(&mut self) {
-        // Volatile-zeroize the entire usable region
+        // SAFETY: Zeroize the entire usable region using write_volatile to prevent
+        // the compiler from eliding the write. compiler_fence ensures ordering.
         unsafe {
             let ptr = self.base_ptr.add(self.usable_offset);
             for i in 0..self.usable_size {
@@ -219,7 +232,8 @@ impl Drop for SecureRegion {
         }
         compiler_fence(Ordering::SeqCst);
 
-        // Unlock and unmap
+        // SAFETY: munlock + munmap on the original allocation. base_ptr and sizes
+        // are unchanged since construction. Must occur unconditionally in drop.
         unsafe {
             let usable_ptr = self.base_ptr.add(self.usable_offset);
             libc::munlock(usable_ptr as *const libc::c_void, self.usable_size);
@@ -230,6 +244,7 @@ impl Drop for SecureRegion {
 
 /// Get the system page size.
 fn page_size() -> usize {
+    // SAFETY: sysconf(_SC_PAGESIZE) is a read-only query with no side effects.
     unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
 }
 

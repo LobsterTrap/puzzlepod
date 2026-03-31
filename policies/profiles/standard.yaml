@@ -117,5 +117,5 @@ behavioral:
   credential_access_alert: true
 
 fail_mode: FailClosed
-seccomp_mode: Permissive
+seccomp_mode: Strict
 allow_symlinks: false

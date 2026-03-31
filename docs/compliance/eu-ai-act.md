@@ -1,0 +1,23 @@
+# PuzzlePod — EU AI Act (Regulation 2024/1689) Control Mapping
+
+This document maps selected **EU Artificial Intelligence Act** obligations (high-risk and general-purpose context) to PuzzlePod technical controls. It is not legal advice; deploying organizations remain responsible for conformity assessment, documentation, and organizational measures.
+
+---
+
+## Mapping: Articles 9–15
+
+| Article | Requirement (summary) | PuzzlePod Control | Evidence |
+|---|---|---|---|
+| **Art. 9** | Risk management system: identify, evaluate, and mitigate risks throughout the AI lifecycle | Threat model **T1–T7** (likelihood/impact matrix, kill-chain analysis) in `docs/PRD.md` / security materials; **eight defense-in-depth layers** (Landlock, seccomp, PID/mount/net namespaces, cgroups, SELinux `puzzlepod_t`, BPF LSM) with escape-vector coverage; **fail-closed** default (`puzzled_types::FailMode::FailClosed`, rollback on governance failure in `crates/puzzled/src/branch/commit_flow.rs`) | Design docs; `crates/puzzled/src/sandbox/` (landlock, seccomp, bpf_lsm); `policies/rules/` Rego tests via `puzzlectl policy test` |
+| **Art. 10** | Data governance: quality, relevance, and safeguards for training/operational data | **Landlock** read/write allowlists and credential-oriented **denylist** (`crates/puzzled/src/sandbox/landlock.rs`, profile YAML); **DLP** pipeline via `puzzle_proxy::dlp::DlpEngine`, `DlpConfig` in `crates/puzzled/src/config.rs`, rules under configured `dlp.default_rules_path`; **data residency** checks using GeoIP (`puzzle_proxy::geo::GeoIpDatabase` in `main.rs`) with per-profile `data_residency` | Profile schema `policies/schemas/profile.schema.json`; `puzzled.conf` `[dlp]`; proxy integration in branch manager |
+| **Art. 11** | Technical documentation and traceability of the high-risk AI system | **Audit trail** (`crates/puzzled/src/audit_store.rs`): append-oriented store with governance events; **attestation chain** (Ed25519 + optional Merkle tree, `AttestationConfig`, `crates/puzzled/src/ima.rs`); **compliance evidence** via `puzzlectl compliance report` / status (`crates/puzzlectl/src/compliance.rs`, `main.rs`) bundling policies, audit excerpts, manifests | `puzzlectl compliance report`; D-Bus `ExportAttestationBundle`, `VerifyAttestationChain`; `docs/security-guide.md` attestation section |
+| **Art. 12** | Automatic recording of events (logging), retention, integrity | **HMAC-chained NDJSON** audit log in `AuditStore` (integrity key `integrity_key_path`); **Ed25519-signed** attestation records when IMA/signing key available; **Merkle** inclusion/consistency via `puzzled_types::merkle` and `attestation_dir` / checkpoints | `audit_store.rs`; `config.rs` `AttestationConfig`; `puzzlectl attestation verify`, `inclusion`, `consistency` |
+| **Art. 13** | Transparency: information for deployers/users on capabilities, limitations, oversight | **Provenance chain** (`crates/puzzled/src/provenance.rs` — `ProvenanceStore`, `ProvenanceConfig`) with D-Bus `ReportProvenance` / `GetProvenance` (NDJSON); **attestation bundle export** for third-party verification; **JWKS** for identity verification via D-Bus `GetIdentityJwks` (no bundled HTTP endpoint — key material retrieved through `puzzled` / tooling) | `dbus.rs` provenance + identity methods; `puzzlectl attestation export`; `docs/security-guide.md` (JWKS note) |
+| **Art. 14** | Human oversight: ability to intervene, override, stop the system | **Human-in-the-loop** when policy default maps to hold → **`BranchState::GovernanceReview`** (`crates/puzzled/src/branch/mod.rs`): transitions `Committing → GovernanceReview → Committed \| RolledBack`; D-Bus **`approve_branch`** / **`reject_branch`**; **review timeout** watchdog rolls back expired reviews (same module) | State machine in `branch/mod.rs`; `commit_flow.rs` GovernanceReview transition; D-Bus signal **`governance_review_pending`** in `dbus.rs` |
+| **Art. 15** | Accuracy, robustness, cybersecurity (including resilience to attacks) | **Defense-in-depth**: seccomp filter (`crates/puzzled/src/sandbox/seccomp/`), Landlock, SELinux policy (`selinux/`), BPF LSM (`sandbox/bpf_lsm.rs`); **deterministic governance** (no ML in enforcement path, `regorus` in `policy.rs`); automatic **rollback** and agent termination on failure | `tests/security/`; `seccomp/filter.rs`; Linux Audit + fanotify (`sandbox/fanotify.rs`) where enabled |
+
+---
+
+## Summary
+
+PuzzlePod’s strongest alignment with the cited articles is **technical risk treatment, logging/attestation, containment, and human gatekeeping** for governed agent workloads. **Organizational** measures (roles, training, contractual clauses, conformity processes) remain outside the software.

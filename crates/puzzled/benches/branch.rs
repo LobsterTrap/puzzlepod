@@ -245,6 +245,8 @@ fn bench_full_commit_cycle(c: &mut Criterion) {
                             new_mode: None,
                             timestamp: None,
                             target: None,
+                            entropy: None,
+                            has_base64_blocks: None,
                         })
                         .collect();
 

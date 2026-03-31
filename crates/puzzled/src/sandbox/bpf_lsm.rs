@@ -11,6 +11,10 @@ use std::path::Path;
 
 use crate::error::{PuzzledError, Result};
 
+/// Kernel vmlinux BTF sysfs node (requires CONFIG_DEBUG_INFO_BTF=y).
+#[cfg(target_os = "linux")]
+const VMLINUX_BTF_PATH: &str = "/sys/kernel/btf/vmlinux";
+
 /// Rate limit configuration written to the BPF map.
 /// Must match struct rate_limit_config in exec_guard.h.
 #[repr(C)]
@@ -102,6 +106,34 @@ impl BpfLsmManager {
             return Ok(());
         }
 
+        // BPF LSM program load requires kernel BTF to resolve attach_btf_id for the hook.
+        if !Path::new(VMLINUX_BTF_PATH).exists() {
+            tracing::warn!(
+                "BPF LSM requires BTF (CONFIG_DEBUG_INFO_BTF=y); /sys/kernel/btf/vmlinux not found"
+            );
+            self.load_maps_only()?;
+            self.loaded = true;
+            self.degraded = true;
+            return Ok(());
+        }
+
+        // WS13: Check kernel LSM stack before attempting BPF program load.
+        // BPF LSM requires CONFIG_BPF_LSM=y AND 'bpf' in the kernel lsm= parameter.
+        #[cfg(target_os = "linux")]
+        if let Ok(lsm_list) = std::fs::read_to_string("/sys/kernel/security/lsm") {
+            if !lsm_list.contains("bpf") {
+                tracing::warn!(
+                    lsm_stack = %lsm_list.trim(),
+                    "BPF LSM not in kernel LSM stack — exec rate limiting unavailable. \
+                     Add 'lsm=lockdown,capability,yama,selinux,bpf' to kernel command line."
+                );
+                self.load_maps_only()?;
+                self.loaded = true;
+                self.degraded = true;
+                return Ok(());
+            }
+        }
+
         if !self.bpf_obj_path.exists() {
             return Err(PuzzledError::BpfLsm(format!(
                 "BPF object file not found: {}",
@@ -132,12 +164,13 @@ impl BpfLsmManager {
         self.loaded = true;
         // M-sc1: Mark as degraded since BPF programs are not attached
         self.degraded = true;
+        // C-2 audit fix: prominent degradation warning with remediation steps
         tracing::warn!(
-            "BPF LSM is in degraded mode — maps created but no kernel enforcement. \
-             Other defense layers (seccomp, SELinux) must compensate."
+            "BPF LSM DEGRADED — exec rate limiting disabled (maps only, no kernel enforcement). \
+             Requires CONFIG_BPF_LSM=y in kernel config AND 'lsm=lockdown,capability,yama,selinux,bpf' \
+             in kernel command line. Check /sys/kernel/security/lsm for 'bpf'. \
+             Other defense layers (seccomp, Landlock, SELinux) remain active."
         );
-        // TODO: M-sc1: Increment a metric counter for BPF degradation events
-        // (e.g., metrics::counter!("puzzled_bpf_degraded_total").increment(1))
         Ok(())
     }
 
@@ -654,6 +687,27 @@ fn bpf_map_delete<K>(map_fd: i32, key: &K) -> Result<()> {
     Ok(())
 }
 
+/// Look up the vmlinux BTF type ID for an LSM hook function (e.g. `bprm_check_security`).
+///
+/// Used to populate `bpf_attr_prog_load.attach_btf_id` for `BPF_PROG_TYPE_LSM`.
+#[cfg(target_os = "linux")]
+fn vmlinux_lsm_hook_btf_id(hook_func_name: &str) -> Result<u32> {
+    use aya_obj::btf::{Btf, BtfKind};
+
+    let btf = Btf::from_sys_fs().map_err(|e| {
+        PuzzledError::BpfLsm(format!(
+            "reading/parsing kernel BTF at {VMLINUX_BTF_PATH}: {e}"
+        ))
+    })?;
+
+    btf.id_by_type_name_kind(hook_func_name, BtfKind::Func)
+        .map_err(|e| {
+            PuzzledError::BpfLsm(format!(
+                "BTF type id for LSM hook `{hook_func_name}` not found in vmlinux: {e}"
+            ))
+        })
+}
+
 /// Load a BPF program via bpf(BPF_PROG_LOAD).
 ///
 /// `prog_type` should be BPF_PROG_TYPE_LSM for LSM programs.
@@ -716,6 +770,9 @@ fn bpf_prog_load(
     attr.insns = insns.as_ptr() as u64;
     attr.license = license_cstr.as_ptr() as u64;
     attr.expected_attach_type = BPF_LSM_MAC;
+
+    // BPF_PROG_TYPE_LSM requires attach_btf_id = BTF type id of the target LSM hook in vmlinux.
+    attr.attach_btf_id = vmlinux_lsm_hook_btf_id(attach_func_name)?;
 
     // Copy function name into prog_name (max 15 chars + null)
     let name_bytes = func_name_cstr.as_bytes_with_nul();

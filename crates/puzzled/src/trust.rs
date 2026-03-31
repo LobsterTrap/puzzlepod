@@ -20,9 +20,7 @@ use std::path::PathBuf;
 use puzzled_types::{BaselineSeverity, ScoringRule, TrustEvent, TrustLevel, TrustState};
 
 use crate::config::{MetricBehavioralConfig, TrustConfig};
-use crate::error::PuzzledError;
-
-type Result<T> = std::result::Result<T, PuzzledError>;
+use crate::error::{PuzzledError, Result};
 
 // ---------------------------------------------------------------------------
 // Constants (fallbacks when no config provided)

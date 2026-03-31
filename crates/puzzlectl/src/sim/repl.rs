@@ -209,8 +209,7 @@ async fn handle_command(
                 "direct" => {
                     // V50: Preserve loaded scenario when switching modes
                     let current_scenario = engine.scenario().cloned();
-                    *engine =
-                        SimEngine::new(&engine_storage_base(engine)).with_mode(SimMode::Direct);
+                    engine.reset_with_mode(SimMode::Direct);
                     if let Some(scenario) = current_scenario {
                         engine.load(scenario);
                     }
@@ -219,8 +218,7 @@ async fn handle_command(
                 "sandbox" => {
                     // V50: Preserve loaded scenario when switching modes
                     let current_scenario = engine.scenario().cloned();
-                    *engine =
-                        SimEngine::new(&engine_storage_base(engine)).with_mode(SimMode::Sandbox);
+                    engine.reset_with_mode(SimMode::Sandbox);
                     if let Some(scenario) = current_scenario {
                         engine.load(scenario);
                     }
@@ -345,7 +343,7 @@ async fn handle_command(
                 eprintln!("Note: 'execute' uses sandbox mode. Switching temporarily.");
                 // V51: Preserve loaded scenario when switching to sandbox mode for execute
                 let current_scenario = engine.scenario().cloned();
-                *engine = SimEngine::new(&engine_storage_base(engine)).with_mode(SimMode::Sandbox);
+                engine.reset_with_mode(SimMode::Sandbox);
                 if let Some(scenario) = current_scenario {
                     engine.load(scenario);
                 }
@@ -500,18 +498,21 @@ fn parse_run_flags(cmd: &str) -> (Vec<usize>, Vec<String>) {
     (skip_indices, skip_tags)
 }
 
-fn engine_storage_base(engine: &SimEngine) -> String {
-    engine.storage_base().to_string()
-}
-
 fn discover_profile_names(dir: &Path) -> Vec<String> {
     let mut names = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("yaml") {
-                if let Some(stem) = path.file_stem() {
-                    names.push(stem.to_string_lossy().to_string());
+        for entry in entries {
+            match entry {
+                Ok(entry) => {
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()) == Some("yaml") {
+                        if let Some(stem) = path.file_stem() {
+                            names.push(stem.to_string_lossy().to_string());
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("warning: failed to read profile directory entry: {e}");
                 }
             }
         }
