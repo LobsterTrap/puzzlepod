@@ -118,8 +118,23 @@ impl QuotaManager {
             )));
         }
 
-        // Set project quota limits via quotactl(Q_XSETPQLIM)
-        Self::set_project_quota(upper_dir, project_id, storage_quota_mb, inode_quota);
+        // Set project quota limits via quotactl(Q_XSETPQLIM).
+        // If this fails after FS_IOC_FSSETXATTR succeeded, the project ID is
+        // assigned but limits are not enforced — report as Unavailable so the
+        // caller can decide based on the profile's require_quota setting.
+        if let Err(reason) =
+            Self::set_project_quota(upper_dir, project_id, storage_quota_mb, inode_quota)
+        {
+            tracing::warn!(
+                path = %upper_dir.display(),
+                project_id,
+                error = %reason,
+                "XFS project ID assigned but quotactl failed"
+            );
+            return Ok(EnforcementStatus::Unavailable(format!(
+                "project ID set but quota limits failed: {reason}"
+            )));
+        }
 
         tracing::info!(
             path = %upper_dir.display(),
@@ -147,15 +162,15 @@ impl QuotaManager {
 
     /// Set XFS project quota limits via quotactl(Q_XSETPQLIM).
     ///
-    /// Best-effort: logs a warning if quotactl fails (e.g., not on XFS,
-    /// quotas not enabled, insufficient privileges).
+    /// Returns `Ok(())` on success, or `Err(reason)` if quotactl fails
+    /// (e.g., not on XFS, quotas not enabled, insufficient privileges).
     #[cfg(target_os = "linux")]
     fn set_project_quota(
         upper_dir: &Path,
         project_id: u32,
         storage_quota_mb: u64,
         inode_quota: u64,
-    ) {
+    ) -> std::result::Result<(), String> {
         use std::ffi::CString;
 
         // Q_XSETPQLIM = QCMD(Q_XSETQLIM, PRJQUOTA) = 0x00800005
@@ -216,36 +231,29 @@ impl QuotaManager {
             d_padding4: [0; 8],
         };
 
-        if let Some(dev) = Self::find_block_device(upper_dir) {
-            let c_dev = match CString::new(dev.as_str()) {
-                Ok(c) => c,
-                Err(_) => {
-                    tracing::warn!("invalid block device path for quotactl");
-                    return;
-                }
-            };
-            let ret = unsafe {
-                libc::quotactl(
-                    Q_XSETPQLIM,
-                    c_dev.as_ptr(),
-                    // R1: Mask high bit to prevent sign wrap when casting u32 -> i32.
-                    // XFS project IDs above 0x7FFF_FFFF would become negative i32,
-                    // causing quotactl to fail or apply to the wrong project.
-                    (project_id & 0x7FFF_FFFF) as i32,
-                    &dq as *const FsDiskQuota as *mut libc::c_char,
-                )
-            };
-            if ret < 0 {
-                let err = std::io::Error::last_os_error();
-                tracing::warn!(
-                    project_id,
-                    error = %err,
-                    "quotactl(Q_XSETPQLIM) failed (best-effort, continuing)"
-                );
-            }
-        } else {
-            tracing::warn!("could not determine block device for quota enforcement");
+        let dev = Self::find_block_device(upper_dir)
+            .ok_or_else(|| "could not determine block device for quota enforcement".to_string())?;
+
+        let c_dev = CString::new(dev.as_str())
+            .map_err(|_| "invalid block device path for quotactl".to_string())?;
+
+        let ret = unsafe {
+            libc::quotactl(
+                Q_XSETPQLIM,
+                c_dev.as_ptr(),
+                // R1: Mask high bit to prevent sign wrap when casting u32 -> i32.
+                // XFS project IDs above 0x7FFF_FFFF would become negative i32,
+                // causing quotactl to fail or apply to the wrong project.
+                (project_id & 0x7FFF_FFFF) as i32,
+                &dq as *const FsDiskQuota as *mut libc::c_char,
+            )
+        };
+        if ret < 0 {
+            let err = std::io::Error::last_os_error();
+            return Err(format!("quotactl(Q_XSETPQLIM) failed: {err}"));
         }
+
+        Ok(())
     }
 
     /// Find the block device for the filesystem containing the given path
@@ -274,11 +282,92 @@ impl QuotaManager {
         best_match.map(|(dev, _)| dev.to_string())
     }
 
-    /// Remove project quota for a branch (best-effort).
+    /// Remove project quota for a branch (best-effort cleanup).
+    ///
+    /// 1. Zero out quota limits via quotactl(Q_XSETPQLIM) with b_hard=0, i_hard=0
+    /// 2. Reset project ID to 0 via FS_IOC_FSSETXATTR
+    ///
+    /// Errors are logged but never propagated — rollback must not fail due to
+    /// quota cleanup issues.
+    #[cfg(target_os = "linux")]
+    pub fn remove(upper_dir: &Path) -> Result<()> {
+        // Recompute the same deterministic project ID used during setup
+        let project_id = {
+            use sha2::{Digest, Sha256};
+            let hash = Sha256::digest(upper_dir.to_string_lossy().as_bytes());
+            u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]])
+        };
+
+        // Step 1: Zero out quota limits via quotactl(Q_XSETPQLIM)
+        if let Err(e) = Self::set_project_quota(upper_dir, project_id, 0, 0) {
+            tracing::warn!(
+                path = %upper_dir.display(),
+                project_id,
+                error = %e,
+                "best-effort quota limit cleanup failed"
+            );
+        }
+
+        // Step 2: Reset project ID to 0 via FS_IOC_FSSETXATTR
+        const FS_IOC_FSSETXATTR: libc::c_ulong = 0x40100020;
+
+        #[repr(C)]
+        struct FsxAttr {
+            fsx_xflags: u32,
+            fsx_extsize: u32,
+            fsx_nextents: u32,
+            fsx_projid: u32,
+            fsx_cowextsize: u32,
+            fsx_pad: [u8; 8],
+        }
+
+        let attr = FsxAttr {
+            fsx_xflags: 0,
+            fsx_extsize: 0,
+            fsx_nextents: 0,
+            fsx_projid: 0,
+            fsx_cowextsize: 0,
+            fsx_pad: [0; 8],
+        };
+
+        match std::fs::File::open(upper_dir) {
+            Ok(fd) => {
+                use std::os::unix::io::AsRawFd;
+                let ret = unsafe {
+                    libc::ioctl(fd.as_raw_fd(), FS_IOC_FSSETXATTR, &attr as *const FsxAttr)
+                };
+                if ret < 0 {
+                    let err = std::io::Error::last_os_error();
+                    tracing::warn!(
+                        path = %upper_dir.display(),
+                        error = %err,
+                        "best-effort project ID reset failed"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    path = %upper_dir.display(),
+                    error = %e,
+                    "best-effort quota cleanup skipped: cannot open directory"
+                );
+            }
+        }
+
+        tracing::debug!(
+            path = %upper_dir.display(),
+            project_id,
+            "XFS quota cleanup completed (best-effort)"
+        );
+        Ok(())
+    }
+
+    /// Remove project quota for a branch (no-op on non-Linux).
+    #[cfg(not(target_os = "linux"))]
     pub fn remove(upper_dir: &Path) -> Result<()> {
         tracing::debug!(
             path = %upper_dir.display(),
-            "XFS quota cleanup (project quota removed with directory)"
+            "XFS quota cleanup skipped (not on Linux)"
         );
         Ok(())
     }

@@ -30,6 +30,8 @@ fn bench_policy_evaluation(c: &mut Criterion) {
                     new_mode: None,
                     timestamp: None,
                     target: None,
+                    entropy: None,
+                    has_base64_blocks: None,
                 })
                 .collect();
 

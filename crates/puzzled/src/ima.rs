@@ -249,6 +249,8 @@ impl ImaIntegration {
             "commit manifest signed"
         );
 
+        self.verify_manifest(&manifest)?;
+
         Ok(manifest)
     }
 
@@ -605,6 +607,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             FileChange {
                 path: "README.md".into(),
@@ -616,6 +620,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
         ];
 
@@ -648,6 +654,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let branch_id = BranchId::from("test-branch".to_string());
@@ -719,6 +727,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
         let branch_id = BranchId::from("rotation-test".to_string());
         let manifest = ima.sign_commit(&branch_id, &changes).unwrap();

@@ -5,7 +5,7 @@
 //! The profile includes:
 //! - `SCMP_ACT_NOTIFY` for execve/connect/bind (daemon-mediated gating)
 //! - `SCMP_ACT_KILL_PROCESS` for 57+ escape-vector syscalls (static deny)
-//! - `SCMP_ACT_ALLOW` as default action
+//! - `SCMP_ACT_ALLOW` or `SCMP_ACT_ERRNO` as default action (profile `seccomp_mode`)
 //! - `listenerPath` for puzzled's seccomp notification socket
 //! - `listenerMetadata` containing the branch_id
 
@@ -13,12 +13,17 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use crate::error::{PuzzledError, Result};
+use crate::sandbox::seccomp::filter::{ALLOW_SYSCALLS, BASE_NOTIFY_SYSCALLS, DENY_SYSCALLS};
+use puzzled_types::SeccompMode;
 
 /// OCI seccomp profile structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OciSeccompProfile {
     pub default_action: String,
+    /// Return value when `default_action` is `SCMP_ACT_ERRNO` (Strict / default-deny).
+    #[serde(rename = "defaultErrnoRet", skip_serializing_if = "Option::is_none")]
+    pub default_errno_ret: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub listener_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -51,74 +56,6 @@ pub struct SyscallArg {
     pub value_two: Option<u64>,
 }
 
-/// Escape-vector syscalls that are statically denied (SCMP_ACT_KILL_PROCESS).
-const DENY_SYSCALLS: &[&str] = &[
-    "ptrace",
-    "kexec_load",
-    "kexec_file_load",
-    "init_module",
-    "finit_module",
-    "delete_module",
-    "mount",
-    "umount2",
-    "pivot_root",
-    "setns",
-    "unshare",
-    "bpf",
-    "userfaultfd",
-    "perf_event_open",
-    "mount_setattr",
-    "move_mount",
-    "open_tree",
-    "fsopen",
-    "fspick",
-    "fsconfig",
-    "fsmount",
-    "reboot",
-    "swapon",
-    "swapoff",
-    "acct",
-    "iopl",
-    "ioperm",
-    "io_uring_setup",
-    "io_uring_enter",
-    "io_uring_register",
-    "process_vm_readv",
-    "process_vm_writev",
-    "kcmp",
-    "add_key",
-    "keyctl",
-    "request_key",
-    "personality",
-    "syslog",
-    "lookup_dcookie",
-    "name_to_handle_at",
-    "open_by_handle_at",
-    "memfd_create",
-    "memfd_secret",
-    "chroot",
-    "settimeofday",
-    "clock_settime",
-    "shmget",
-    "shmat",
-    "shmctl",
-    "shmdt",
-    "semget",
-    "semop",
-    "semctl",
-    "semtimedop",
-    "msgget",
-    "msgsnd",
-    "msgrcv",
-    "msgctl",
-    // modify_ldt — x86_64 only. Allows modifying the Local Descriptor Table,
-    // which can be used for segmentation-based sandbox escapes.
-    "modify_ldt",
-];
-
-/// Syscalls gated via SCMP_ACT_NOTIFY (daemon-mediated).
-const NOTIFY_SYSCALLS: &[&str] = &["execve", "execveat", "connect", "bind"];
-
 /// Landlock syscalls that must be allowed for puzzle-init shim.
 const LANDLOCK_SYSCALLS: &[&str] = &[
     "landlock_create_ruleset",
@@ -135,11 +72,13 @@ const LANDLOCK_SYSCALLS: &[&str] = &[
 /// * `listener_socket` - Path to puzzled's seccomp notification socket
 /// * `include_notify` - Whether to include SCMP_ACT_NOTIFY rules (false for static-only mode)
 /// * `include_clone_guard` - Whether to include clone/clone3 in notify (when BPF guard inactive)
+/// * `seccomp_mode` - Permissive (default-allow) or Strict (default-deny + explicit allowlist)
 pub fn generate_seccomp_profile(
     branch_id: &str,
     listener_socket: &Path,
     include_notify: bool,
     include_clone_guard: bool,
+    seccomp_mode: SeccompMode,
 ) -> Result<OciSeccompProfile> {
     let mut syscalls = Vec::new();
 
@@ -192,7 +131,8 @@ pub fn generate_seccomp_profile(
 
     // NOTIFY rules for daemon-mediated gating
     if include_notify {
-        let mut notify_names: Vec<String> = NOTIFY_SYSCALLS.iter().map(|s| s.to_string()).collect();
+        let mut notify_names: Vec<String> =
+            BASE_NOTIFY_SYSCALLS.iter().map(|s| s.to_string()).collect();
 
         if include_clone_guard {
             notify_names.push("clone".to_string());
@@ -207,6 +147,31 @@ pub fn generate_seccomp_profile(
         });
     }
 
+    // m17: Strict mode — default-deny (ERRNO) with the same explicit allowlist as
+    // `SeccompBuilder` in filter.rs. NOTIFY and KILL rules above stay first-match.
+    let (default_action, default_errno_ret) = match seccomp_mode {
+        SeccompMode::Permissive => ("SCMP_ACT_ALLOW".to_string(), None),
+        SeccompMode::Strict => {
+            syscalls.push(SyscallRule {
+                names: ALLOW_SYSCALLS.iter().map(|s| s.to_string()).collect(),
+                action: "SCMP_ACT_ALLOW".to_string(),
+                args: None,
+                errno_ret: None,
+            });
+            // Match filter.rs: when BPF clone guard is active (`!include_clone_guard` here),
+            // clone/clone3 are not USER_NOTIF-gated and must be explicitly allowed in Strict mode.
+            if !include_clone_guard {
+                syscalls.push(SyscallRule {
+                    names: vec!["clone".to_string(), "clone3".to_string()],
+                    action: "SCMP_ACT_ALLOW".to_string(),
+                    args: None,
+                    errno_ret: None,
+                });
+            }
+            ("SCMP_ACT_ERRNO".to_string(), Some(libc::EPERM as u32))
+        }
+    };
+
     let listener_path = if include_notify {
         Some(listener_socket.to_string_lossy().to_string())
     } else {
@@ -219,15 +184,11 @@ pub fn generate_seccomp_profile(
         None
     };
 
-    // M6: SCMP_ACT_ALLOW as default action is deliberate. Seccomp is one layer
-    // in a defense-in-depth stack: Landlock enforces filesystem access (< 1μs),
-    // BPF LSM provides exec counting/rate limiting, and 57+ escape-vector syscalls
-    // are explicitly denied via SCMP_ACT_KILL_PROCESS above. The default-allow
-    // approach avoids breaking legitimate syscalls while still blocking known
-    // dangerous ones — the alternative (default-deny with explicit allow) would
-    // require maintaining a complete syscall allowlist that varies by workload.
+    // M6: Permissive — SCMP_ACT_ALLOW as default is deliberate (defense in depth).
+    // Strict — SCMP_ACT_ERRNO aligns OCI JSON with in-process seccomp filter behavior.
     Ok(OciSeccompProfile {
-        default_action: "SCMP_ACT_ALLOW".to_string(),
+        default_action,
+        default_errno_ret,
         listener_path,
         listener_metadata,
         architectures: vec![
@@ -267,6 +228,7 @@ pub fn write_seccomp_profile(profile: &OciSeccompProfile, output_path: &Path) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use puzzled_types::SeccompMode;
 
     #[test]
     fn test_generate_profile_structure_valid() {
@@ -275,10 +237,12 @@ mod tests {
             Path::new("/run/puzzled/seccomp-notify.sock"),
             true,
             false,
+            SeccompMode::Permissive,
         )
         .unwrap();
 
         assert_eq!(profile.default_action, "SCMP_ACT_ALLOW");
+        assert!(profile.default_errno_ret.is_none());
         assert!(profile.listener_path.is_some());
         assert!(profile.listener_metadata.is_some());
         assert_eq!(profile.architectures.len(), 2);
@@ -291,6 +255,7 @@ mod tests {
             Path::new("/run/puzzled/seccomp-notify.sock"),
             true,
             false,
+            SeccompMode::Permissive,
         )
         .unwrap();
 
@@ -317,6 +282,7 @@ mod tests {
             Path::new("/run/puzzled/seccomp-notify.sock"),
             true,
             false,
+            SeccompMode::Permissive,
         )
         .unwrap();
 
@@ -349,6 +315,7 @@ mod tests {
             Path::new("/run/puzzled/seccomp-notify.sock"),
             true,
             false,
+            SeccompMode::Permissive,
         )
         .unwrap();
 
@@ -369,6 +336,7 @@ mod tests {
             Path::new("/run/puzzled/seccomp-notify.sock"),
             true,
             false,
+            SeccompMode::Permissive,
         )
         .unwrap();
 
@@ -391,6 +359,7 @@ mod tests {
             Path::new("/run/puzzled/seccomp-notify.sock"),
             false,
             false,
+            SeccompMode::Permissive,
         )
         .unwrap();
 
@@ -414,6 +383,7 @@ mod tests {
             Path::new("/run/puzzled/seccomp-notify.sock"),
             true,
             true,
+            SeccompMode::Permissive,
         )
         .unwrap();
 
@@ -437,6 +407,7 @@ mod tests {
             Path::new("/run/puzzled/seccomp-notify.sock"),
             true,
             false,
+            SeccompMode::Permissive,
         )
         .unwrap();
 
@@ -456,6 +427,7 @@ mod tests {
             Path::new("/run/puzzled/seccomp-notify.sock"),
             true,
             false,
+            SeccompMode::Permissive,
         )
         .unwrap();
 
@@ -474,6 +446,7 @@ mod tests {
             Path::new("/run/puzzled/seccomp-notify.sock"),
             true,
             false,
+            SeccompMode::Permissive,
         )
         .unwrap();
 
@@ -489,5 +462,39 @@ mod tests {
         assert!(allow_names.contains(&"landlock_create_ruleset"));
         assert!(allow_names.contains(&"landlock_add_rule"));
         assert!(allow_names.contains(&"landlock_restrict_self"));
+    }
+
+    #[test]
+    fn test_strict_mode_default_errno_and_allowlist() {
+        let profile = generate_seccomp_profile(
+            "strict-branch",
+            Path::new("/run/puzzled/seccomp-notify.sock"),
+            true,
+            false,
+            SeccompMode::Strict,
+        )
+        .unwrap();
+
+        assert_eq!(profile.default_action, "SCMP_ACT_ERRNO");
+        assert_eq!(profile.default_errno_ret, Some(libc::EPERM as u32));
+
+        let allow_bulk = profile
+            .syscalls
+            .iter()
+            .find(|r| r.action == "SCMP_ACT_ALLOW" && r.names.contains(&"read".to_string()));
+        assert!(
+            allow_bulk.is_some(),
+            "Strict profile must include SCMP_ACT_ALLOW rule for ALLOW_SYSCALLS"
+        );
+
+        let clone_allow = profile.syscalls.iter().find(|r| {
+            r.action == "SCMP_ACT_ALLOW"
+                && r.names.contains(&"clone".to_string())
+                && r.names.contains(&"clone3".to_string())
+        });
+        assert!(
+            clone_allow.is_some(),
+            "Strict + !include_clone_guard must explicitly allow clone/clone3"
+        );
     }
 }

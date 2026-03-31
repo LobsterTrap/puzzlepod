@@ -9,8 +9,9 @@
 //! Events are classified and counted; when thresholds are exceeded,
 //! `BehavioralTrigger` events are sent to the branch manager.
 //!
-//! Uses `fanotify_init(FAN_CLASS_NOTIF | FAN_REPORT_FID)` for non-blocking
-//! notification-only monitoring (does not block the agent).
+//! Uses `fanotify_init(FAN_CLASS_NOTIF | FAN_REPORT_DIR_FID | FAN_REPORT_NAME)`
+//! when `CAP_SYS_ADMIN` is available; otherwise falls back to basic path-based
+//! monitoring (`FAN_CLASS_NOTIF` only) for rootless mode.
 //!
 //! Falls back gracefully if fanotify is unavailable or queue overflows.
 
@@ -100,9 +101,14 @@ impl BehavioralCounters {
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct FanotifyMonitor {
     branch_id: BranchId,
-    /// FID group: monitors FAN_DELETE | FAN_CREATE (fd=-1, mask-based counting only).
+    /// FID group (full mode) or basic event group (degraded): see `degraded`.
     #[cfg(target_os = "linux")]
     fid_fd: i32,
+    /// True when FID init failed and we use basic path-based events only
+    /// (no `FAN_REPORT_DIR_FID` / `FAN_REPORT_NAME` — rename / directory-FID
+    /// semantics unavailable).
+    #[cfg(target_os = "linux")]
+    degraded: bool,
     /// Path group: monitors FAN_OPEN | FAN_CLOSE_WRITE (valid fd for path resolution).
     /// -1 if not available (graceful degradation: no credential detection).
     #[cfg(target_os = "linux")]
@@ -127,9 +133,11 @@ impl FanotifyMonitor {
     /// Initialize fanotify monitoring on the merged directory.
     ///
     /// Creates two fanotify groups:
-    /// - **FID group** (`FAN_REPORT_DIR_FID | FAN_REPORT_NAME`): monitors
-    ///   `FAN_DELETE | FAN_CREATE` for deletion/creation counting. Events have
-    ///   `fd = -1` (FID mode). `FAN_REPORT_NAME` prevents event merging.
+    /// - **Merged / directory group** (preferred: `FAN_REPORT_DIR_FID |
+    ///   FAN_REPORT_NAME`): monitors `FAN_DELETE | FAN_CREATE | FAN_ONDIR` with
+    ///   `fd = -1` (FID mode). If that fails (e.g. rootless, no `CAP_SYS_ADMIN`),
+    ///   falls back to **basic** `FAN_CLASS_NOTIF` only: `FAN_CREATE | FAN_DELETE |
+    ///   FAN_MODIFY | FAN_ACCESS` with path fds (`degraded` = true).
     /// - **Path group** (no FID flags): monitors `FAN_OPEN | FAN_CLOSE_WRITE`
     ///   for read counting, credential detection, and touched-file tracking.
     ///   Events have valid fds for path resolution via `/proc/self/fd/<fd>`.
@@ -154,6 +162,8 @@ impl FanotifyMonitor {
         const FAN_MARK_FILESYSTEM: u32 = 0x0000_0100;
 
         // Event masks (values from include/uapi/linux/fanotify.h)
+        const FAN_ACCESS: u64 = 0x0000_0001;
+        const FAN_MODIFY: u64 = 0x0000_0002;
         const FAN_OPEN: u64 = 0x0000_0020;
         const FAN_CLOSE_WRITE: u64 = 0x0000_0008;
         const FAN_DELETE: u64 = 0x0000_0200;
@@ -202,7 +212,7 @@ impl FanotifyMonitor {
             ret
         };
 
-        // --- Group 1: FID group for directory events (FAN_DELETE, FAN_CREATE) ---
+        // --- Group 1: FID group (preferred) or basic path-based group (rootless) ---
         // FAN_REPORT_NAME prevents the kernel from merging deletion events
         // for different files in the same directory (each event includes the
         // file name, making them distinct). Without it, rapid deletions in one
@@ -216,24 +226,46 @@ impl FanotifyMonitor {
                 libc::O_RDONLY as u32,
             )
         };
-        let fid_fd = i32::try_from(fid_fd_raw).unwrap_or(-1);
-
-        if fid_fd < 0 {
-            return Err(PuzzledError::Fanotify(format!(
-                "fanotify_init (FID group) failed: {}",
-                std::io::Error::last_os_error()
-            )));
-        }
-
+        let mut fid_fd = i32::try_from(fid_fd_raw).unwrap_or(-1);
         let fid_mask: u64 = FAN_DELETE | FAN_CREATE | FAN_ONDIR;
-        if try_mark(fid_fd, fid_mask, &merged_cstr) < 0 {
-            let err = std::io::Error::last_os_error();
-            unsafe { libc::close(fid_fd) };
-            return Err(PuzzledError::Fanotify(format!(
-                "fanotify_mark (FID group) failed on {}: {}",
-                merged_dir.display(),
-                err
-            )));
+        let fid_group_ok = fid_fd >= 0 && try_mark(fid_fd, fid_mask, &merged_cstr) >= 0;
+
+        let mut degraded = false;
+        if !fid_group_ok {
+            if fid_fd >= 0 {
+                unsafe { libc::close(fid_fd) };
+            }
+            tracing::warn!(
+                branch = %branch_id,
+                error = %std::io::Error::last_os_error(),
+                "fanotify FID group requires CAP_SYS_ADMIN — falling back to basic monitoring (rootless mode)"
+            );
+
+            let fallback_fd_raw = unsafe {
+                libc::syscall(
+                    libc::SYS_fanotify_init,
+                    FAN_CLASS_NOTIF | FAN_NONBLOCK | FAN_CLOEXEC,
+                    libc::O_RDONLY as u32,
+                )
+            };
+            fid_fd = i32::try_from(fallback_fd_raw).unwrap_or(-1);
+            if fid_fd < 0 {
+                return Err(PuzzledError::Fanotify(format!(
+                    "fanotify_init (basic group) failed: {}",
+                    std::io::Error::last_os_error()
+                )));
+            }
+            let basic_mask: u64 = FAN_CREATE | FAN_DELETE | FAN_MODIFY | FAN_ACCESS;
+            if try_mark(fid_fd, basic_mask, &merged_cstr) < 0 {
+                let err = std::io::Error::last_os_error();
+                unsafe { libc::close(fid_fd) };
+                return Err(PuzzledError::Fanotify(format!(
+                    "fanotify_mark (basic group) failed on {}: {}",
+                    merged_dir.display(),
+                    err
+                )));
+            }
+            degraded = true;
         }
 
         // --- Group 2: Path group for file events (FAN_OPEN, FAN_CLOSE_WRITE) ---
@@ -280,6 +312,7 @@ impl FanotifyMonitor {
             merged_dir = %merged_dir.display(),
             fid_fd,
             path_fd,
+            degraded,
             "fanotify monitoring initialized"
         );
 
@@ -287,6 +320,7 @@ impl FanotifyMonitor {
             branch_id,
             fid_fd,
             path_fd,
+            degraded,
             config,
             counters: Arc::new(BehavioralCounters::new()),
             touched_files: Arc::new(std::sync::Mutex::new(HashSet::new())),
@@ -306,6 +340,18 @@ impl FanotifyMonitor {
         Err(crate::error::PuzzledError::Fanotify(
             "fanotify requires Linux".to_string(),
         ))
+    }
+
+    /// True when running in rootless/basic fanotify mode (no FID group).
+    pub fn is_degraded(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            self.degraded
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            false
+        }
     }
 
     /// Start the monitoring loop in a blocking thread.
@@ -342,6 +388,7 @@ impl FanotifyMonitor {
         {
             let fid_fd = self.fid_fd;
             let path_fd = self.path_fd;
+            let degraded = self.degraded;
             // M1: Transfer fd ownership to the polling thread.
             // Set to -1 so Drop doesn't double-close.
             self.fid_fd = -1;
@@ -358,6 +405,7 @@ impl FanotifyMonitor {
                 Self::poll_loop(
                     fid_fd,
                     path_fd,
+                    degraded,
                     &branch_id,
                     &config,
                     &counters_clone,
@@ -421,6 +469,7 @@ impl FanotifyMonitor {
     fn poll_loop(
         fid_fd: i32,
         path_fd: i32,
+        degraded: bool,
         branch_id: &BranchId,
         config: &BehavioralConfig,
         counters: &BehavioralCounters,
@@ -578,6 +627,7 @@ impl FanotifyMonitor {
 
                     Self::classify_event(
                         &event,
+                        degraded,
                         branch_id,
                         config,
                         counters,
@@ -610,6 +660,7 @@ impl FanotifyMonitor {
     #[allow(clippy::too_many_arguments)]
     fn classify_event(
         event: &FanotifyEventMetadata,
+        degraded: bool,
         branch_id: &BranchId,
         config: &BehavioralConfig,
         counters: &BehavioralCounters,
@@ -618,10 +669,14 @@ impl FanotifyMonitor {
         tx: &tokio::sync::mpsc::Sender<BehavioralTrigger>,
         needs_full_diff: &AtomicBool,
     ) {
+        const FAN_ACCESS: u64 = 0x0000_0001;
+        const FAN_MODIFY: u64 = 0x0000_0002;
         const FAN_OPEN: u64 = 0x0000_0020;
         const FAN_CLOSE_WRITE: u64 = 0x0000_0008;
         const FAN_DELETE: u64 = 0x0000_0200;
         const FAN_CREATE: u64 = 0x0000_0100;
+        const FAN_MOVED_FROM: u64 = 0x0000_0040;
+        const FAN_MOVED_TO: u64 = 0x0000_0080;
         const FAN_Q_OVERFLOW: u64 = 0x0000_4000;
 
         // Handle queue overflow — mark branch for full diff and notify governance
@@ -716,8 +771,18 @@ impl FanotifyMonitor {
                 .ok();
         }
 
-        // Check for read events (FAN_OPEN)
-        if event.mask & FAN_OPEN != 0 {
+        // FAN_MOVED_* requires FID-capable groups; not delivered in degraded mode.
+        if !degraded && (event.mask & FAN_MOVED_FROM != 0 || event.mask & FAN_MOVED_TO != 0) {
+            counters
+                .files_renamed
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                    Some(v.saturating_add(1))
+                })
+                .ok();
+        }
+
+        // Check for read events (FAN_OPEN, FAN_ACCESS)
+        if event.mask & (FAN_OPEN | FAN_ACCESS) != 0 {
             // S36: Use saturating_add to prevent u32 wrap-around past threshold checks.
             let count = counters
                 .reads_this_minute
@@ -784,6 +849,23 @@ impl FanotifyMonitor {
                         })
                         .ok();
                 }
+            }
+        }
+
+        // FAN_MODIFY (basic/degraded group) and close_write (path group) indicate writes.
+        if event.mask & FAN_MODIFY != 0 {
+            counters
+                .files_modified
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                    Some(v.saturating_add(1))
+                })
+                .ok();
+            if let Some(ref p) = path {
+                tracing::trace!(
+                    branch = %branch_id,
+                    path = %p.display(),
+                    "file modified"
+                );
             }
         }
 

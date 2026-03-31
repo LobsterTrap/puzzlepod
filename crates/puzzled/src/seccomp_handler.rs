@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // DC: Single-threaded seccomp notification handling is sufficient for typical
 // workloads (<100 execve/s). For higher throughput, consider per-branch handler threads.
+//
+// WS9 LIMITATION: The single-threaded poll loop means one slow notification
+// (e.g., slow OPA evaluation, disk I/O) blocks ALL agents' gated syscalls.
+// The kernel seccomp USER_NOTIF has no built-in timeout — agents block until
+// puzzled responds. Per-notification timing is logged so operators can identify
+// slow handlers. A thread pool would fix this but requires careful fd lifecycle
+// management — tracked as future work.
+//
+// Known limitation: single-threaded poll loop means one slow notification can
+// delay all agents' gated syscalls. The systemd watchdog timeout (default 30s)
+// is the worst-case freeze duration before SIGABRT. Per-notification deadline
+// of 2s mitigates but does not eliminate head-of-line blocking.
 
 //! Centralized seccomp USER_NOTIF polling thread.
 //!
@@ -12,6 +24,10 @@
 
 #[cfg(target_os = "linux")]
 use std::collections::{HashMap, HashSet};
+#[cfg(target_os = "linux")]
+use std::sync::atomic::AtomicU64;
+#[cfg(target_os = "linux")]
+use std::time::Duration;
 
 use puzzled_types::{AgentProfile, BranchId};
 
@@ -22,6 +38,17 @@ use crate::sandbox::seccomp::SeccompBuilder;
 /// M7: epoll_wait timeout in milliseconds for seccomp notification polling.
 #[cfg(target_os = "linux")]
 const EPOLL_TIMEOUT_MS: i32 = 100;
+
+/// WS9: Wall-clock budget from when the poll loop begins handling a notification
+/// (including `receive`) until the response is sent. If the handler would allow
+/// the syscall but this deadline has passed, the response is forced to EPERM.
+#[cfg(target_os = "linux")]
+pub const SECCOMP_NOTIF_HANDLER_WALL_DEADLINE: Duration = Duration::from_secs(2);
+
+/// WS9: Notifications denied with EPERM because the wall-clock deadline was exceeded
+/// while the policy outcome would have been allow (metrics / observability).
+#[cfg(target_os = "linux")]
+pub static SECCOMP_NOTIF_HANDLER_WALL_DEADLINE_DENIES: AtomicU64 = AtomicU64::new(0);
 
 /// §3.4 G23: Credential proxy context for seccomp-aware gateway blocking.
 ///
@@ -557,17 +584,29 @@ fn poll_loop(
                             .unwrap_or_else(|| {
                                 entry.profile.resource_limits.max_pids.saturating_mul(10)
                             }) as u64; // S4: safe widening u32 → u64
+                                       // WS9: Wall-clock start for this notification (receive + policy + respond).
+                    let notif_start = std::time::Instant::now();
                     if let Err(e) = SeccompBuilder::handle_notification_counted(
                         fd,
                         &entry.profile,
                         &entry.exec_count,
                         exec_budget,
                         entry.credential_proxy.as_ref(),
+                        notif_start,
                     ) {
                         tracing::debug!(
                             branch = %branch_id,
                             error = %e,
                             "seccomp notification handling error"
+                        );
+                    }
+                    let elapsed = notif_start.elapsed();
+                    if elapsed.as_millis() > 500 {
+                        tracing::warn!(
+                            branch = %branch_id,
+                            elapsed_ms = elapsed.as_millis() as u64,
+                            "WS9: slow seccomp notification handler (>500ms) — \
+                             all other agents' gated syscalls blocked during this time"
                         );
                     }
                 }

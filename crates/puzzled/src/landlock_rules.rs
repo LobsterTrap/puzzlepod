@@ -15,7 +15,7 @@ use crate::error::{PuzzledError, Result};
 /// Landlock rules structure consumed by the puzzle-init shim.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LandlockRules {
-    /// Landlock ABI version to request (e.g., "V4").
+    /// Landlock ABI version to request (e.g., "V5").
     pub abi: String,
     /// Paths allowed for read access.
     pub read: Vec<String>,
@@ -26,6 +26,14 @@ pub struct LandlockRules {
     /// Whether to allow LANDLOCK_ACCESS_FS_REFER (cross-directory renames).
     #[serde(default)]
     pub allow_refer: bool,
+    /// C-1/M-2: TCP ports the agent is allowed to connect to (ABI v4+).
+    /// If empty, all ConnectTcp is denied by Landlock.
+    #[serde(default)]
+    pub connect_tcp_ports: Vec<u16>,
+    /// C-1/M-2: TCP ports the agent is allowed to bind to (ABI v4+).
+    /// If empty, all BindTcp is denied by Landlock.
+    #[serde(default)]
+    pub bind_tcp_ports: Vec<u16>,
 }
 
 /// Generate Landlock rules JSON from an agent profile.
@@ -80,19 +88,40 @@ pub fn generate_landlock_rules(
     for path in &standard_read_paths {
         let path_str = path.to_string();
         if !read_paths.contains(&path_str)
-            && !is_denylisted_str(path, &profile.filesystem.denylist)
-            && !is_denylisted_str(path, &profile.filesystem.read_denylist)
+            && !is_denylisted(*path, &profile.filesystem.denylist)
+            && !is_denylisted(*path, &profile.filesystem.read_denylist)
         {
             read_paths.push(path_str);
         }
     }
 
+    // C-1/M-2: Extract proxy port for Landlock ConnectTcp.
+    // In Gated mode, agents should only connect to the proxy port.
+    // The proxy port is the only TCP port the agent needs.
+    let connect_tcp_ports = match profile.network.mode {
+        puzzled_types::NetworkMode::Gated => {
+            // Default proxy port is 3128; profile may configure allowed ports
+            vec![3128]
+        }
+        puzzled_types::NetworkMode::Blocked => {
+            // No outbound connections allowed
+            vec![]
+        }
+        _ => {
+            // Monitored/Unrestricted: don't restrict via Landlock
+            // (network namespace + nftables handle these modes)
+            vec![]
+        }
+    };
+
     Ok(LandlockRules {
-        abi: "V4".to_string(),
+        abi: "V5".to_string(),
         read: read_paths,
         write: write_paths,
         exec: exec_paths,
         allow_refer: profile.allow_symlinks,
+        connect_tcp_ports,
+        bind_tcp_ports: vec![], // Agents should not bind any ports
     })
 }
 
@@ -126,30 +155,32 @@ pub fn write_landlock_rules(rules: &LandlockRules, output_path: &Path) -> Result
 ///
 /// K1: Canonicalize both the path and denylist entries before comparison
 /// to prevent symlink-based bypass (matching pattern in landlock.rs).
-/// Falls back to raw path if canonicalize fails.
-fn is_denylisted(path: &Path, denylist: &[PathBuf]) -> bool {
-    // K1: Canonicalize the path, fall back to raw path on failure
-    let canonical_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    denylist.iter().any(|d| {
-        // K1: Canonicalize each denylist entry, fall back to raw path on failure
-        let canonical_d = std::fs::canonicalize(d).unwrap_or_else(|_| d.to_path_buf());
-        canonical_path.starts_with(&canonical_d)
-    })
-}
-
-/// Check if a string path is in the denylist.
-///
-/// K1: Canonicalize both the path and denylist entries before comparison
-/// to prevent symlink-based bypass (matching pattern in landlock.rs).
-/// Falls back to raw path if canonicalize fails.
-fn is_denylisted_str(path: &str, denylist: &[PathBuf]) -> bool {
-    let p = Path::new(path);
-    // K1: Canonicalize the path, fall back to raw path on failure
-    let canonical_p = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    denylist.iter().any(|d| {
-        // K1: Canonicalize each denylist entry, fall back to raw path on failure
-        let canonical_d = std::fs::canonicalize(d).unwrap_or_else(|_| d.to_path_buf());
-        canonical_p.starts_with(&canonical_d)
+/// If the check path cannot be canonicalized, the path is treated as denied (fail-closed).
+/// If a denylist entry cannot be canonicalized, that entry is skipped after a warning
+/// and other entries are still checked.
+fn is_denylisted(path: impl AsRef<Path>, denylist: &[PathBuf]) -> bool {
+    let path = path.as_ref();
+    let canonical_path = match std::fs::canonicalize(path) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "K1: canonicalize failed for denylist check path — treating as DENYLISTED (fail-closed)"
+            );
+            return true;
+        }
+    };
+    denylist.iter().any(|d| match std::fs::canonicalize(d) {
+        Ok(canonical_d) => canonical_path.starts_with(&canonical_d),
+        Err(e) => {
+            tracing::warn!(
+                denylist_entry = %d.display(),
+                error = %e,
+                "K1: canonicalize failed for denylist entry — skipping entry, checking others"
+            );
+            false
+        }
     })
 }
 
@@ -163,7 +194,7 @@ mod tests {
         let profile = create_restricted_profile();
         let rules = generate_landlock_rules(&profile, Path::new("/workspace")).unwrap();
 
-        assert_eq!(rules.abi, "V4");
+        assert_eq!(rules.abi, "V5");
         // Workspace is always included as writable
         assert!(rules.write.contains(&"/workspace".to_string()));
         assert!(!rules.allow_refer);
@@ -200,7 +231,7 @@ mod tests {
         let json = serde_json::to_string_pretty(&rules).unwrap();
         let parsed: LandlockRules = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(parsed.abi, "V4");
+        assert_eq!(parsed.abi, "V5");
         assert_eq!(parsed.read.len(), rules.read.len());
         assert_eq!(parsed.write.len(), rules.write.len());
     }
@@ -218,7 +249,7 @@ mod tests {
 
         let content = std::fs::read_to_string(&path).unwrap();
         let parsed: LandlockRules = serde_json::from_str(&content).unwrap();
-        assert_eq!(parsed.abi, "V4");
+        assert_eq!(parsed.abi, "V5");
     }
 
     #[test]
@@ -270,10 +301,6 @@ mod tests {
         assert!(
             prod_source.contains("std::fs::canonicalize(d)"),
             "K1: is_denylisted must canonicalize denylist entries"
-        );
-        assert!(
-            prod_source.contains("std::fs::canonicalize(p)"),
-            "K1: is_denylisted_str must canonicalize the path argument"
         );
     }
 }

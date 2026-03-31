@@ -129,6 +129,54 @@ pub fn create_privileged_profile() -> AgentProfile {
     }
 }
 
+/// Create a BranchManager for testing, with temp subdirectories for profiles,
+/// policies, WAL, and branches.
+pub fn create_test_branch_manager(
+    dir: &std::path::Path,
+    max_branches: u32,
+) -> crate::branch::BranchManager {
+    let profiles_dir = dir.join("profiles");
+    let policies_dir = dir.join("policies");
+    let wal_dir = dir.join("wal");
+    let branch_root = dir.join("branches");
+
+    std::fs::create_dir_all(&profiles_dir).unwrap();
+    std::fs::create_dir_all(&policies_dir).unwrap();
+    std::fs::create_dir_all(&wal_dir).unwrap();
+    std::fs::create_dir_all(&branch_root).unwrap();
+
+    let config = crate::config::DaemonConfig {
+        branch_root,
+        profiles_dir: profiles_dir.clone(),
+        policies_dir: policies_dir.clone(),
+        max_branches,
+        ..Default::default()
+    };
+
+    let profile_loader = crate::profile::ProfileLoader::new(profiles_dir);
+    let policy_engine = crate::policy::PolicyEngine::new(policies_dir);
+    let wal = crate::wal::WriteAheadLog::new(wal_dir);
+    let audit = std::sync::Arc::new(crate::audit::AuditLogger::new());
+    let conflict_detector = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::conflict::ConflictDetector::new(),
+    ));
+    let budget_manager =
+        std::sync::Arc::new(std::sync::Mutex::new(crate::budget::BudgetManager::new()));
+
+    crate::branch::BranchManager::new(
+        config,
+        profile_loader,
+        policy_engine,
+        wal,
+        audit,
+        None,
+        conflict_detector,
+        budget_manager,
+        None,
+        None,
+    )
+}
+
 // M4: Removed dead code `create_temp_branch_dir()` — was never called from any test.
 
 #[cfg(test)]

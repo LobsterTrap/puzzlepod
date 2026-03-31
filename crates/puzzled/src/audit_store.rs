@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use puzzled_types::{AgentIdentity, GovernanceDecision};
+use puzzled_types::{AgentIdentity, AuditRecordEvent, GovernanceDecision};
 
 use crate::attestation::{self, MerkleTree};
 use crate::audit::AuditEvent;
@@ -87,13 +87,9 @@ pub struct StoredAuditEvent {
     pub merkle_leaf_index: Option<u64>,
 }
 
-/// Serializable audit event record (mirrors AuditEvent but with string fields).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuditEventRecord {
-    pub event_type: String,
-    pub branch_id: Option<String>,
-    pub details: serde_json::Value,
-}
+/// Type alias preserving backward compatibility — the canonical type now
+/// lives in `puzzled_types::AuditRecordEvent`.
+pub type AuditEventRecord = AuditRecordEvent;
 
 /// Persistent audit event store.
 pub struct AuditStore {

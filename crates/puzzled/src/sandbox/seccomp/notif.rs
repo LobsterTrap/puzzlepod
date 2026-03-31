@@ -21,11 +21,14 @@ use super::procmem::{read_string_from_proc_mem, read_u64_from_proc_mem};
 #[cfg(target_os = "linux")]
 use super::validate::{validate_bind, validate_connect, validate_execve_with_path};
 
-/// H-23: Maximum time allowed for processing a single seccomp notification.
+/// H-23: Handler-side deadline for expensive steps within one notification.
 /// If elapsed time exceeds this threshold before an expensive operation
 /// (reading process memory, policy check, ADDFD injection), the syscall
-/// is denied and the handler returns early. This prevents a slow or hung
-/// agent from blocking the seccomp notification thread indefinitely.
+/// is denied and the handler returns early.
+///
+/// This is **only** a userspace handler budget: it does **not** unblock the
+/// agent's syscall from the kernel's perspective. The notifying thread stays
+/// blocked in the kernel until puzzled sends an allow/deny response.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const NOTIFICATION_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -94,6 +97,9 @@ impl super::SeccompBuilder {
     /// pattern. Ordering::Relaxed is sufficient because exec_count is a monotonically
     /// increasing counter on a single atomic — no other memory operations depend on
     /// its ordering relative to other variables.
+    ///
+    /// WS9: `handler_wall_start` must be `Instant::now()` from the poll loop immediately
+    /// before calling this function so the wall-clock deadline includes `receive`.
     #[cfg(target_os = "linux")]
     pub fn handle_notification_counted(
         notify_fd: i32,
@@ -101,8 +107,10 @@ impl super::SeccompBuilder {
         exec_count: &std::sync::atomic::AtomicU64,
         exec_budget: u64,
         credential_proxy: Option<&seccomp_handler::CredentialProxyContext>,
+        handler_wall_start: Instant,
     ) -> Result<()> {
         use libseccomp::*;
+        use std::sync::atomic::Ordering;
 
         // H-23: Record entry time for timeout enforcement
         let entry_time = Instant::now();
@@ -416,6 +424,25 @@ impl super::SeccompBuilder {
             return Ok(());
         }
 
+        // WS9: Hard wall-clock deadline from poll-loop start. If we would allow but took
+        // too long, deny with EPERM so the poll loop can eventually serve other agents.
+        let allow = if allow
+            && handler_wall_start.elapsed() > seccomp_handler::SECCOMP_NOTIF_HANDLER_WALL_DEADLINE
+        {
+            seccomp_handler::SECCOMP_NOTIF_HANDLER_WALL_DEADLINE_DENIES
+                .fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(
+                pid,
+                notify_id = req.id,
+                elapsed_ms = handler_wall_start.elapsed().as_millis() as u64,
+                "WS9: seccomp notification wall-clock deadline exceeded — denying with EPERM \
+                 (single-threaded handler; other agents' gated syscalls were blocked)"
+            );
+            false
+        } else {
+            allow
+        };
+
         // Build the response
         // For allowed syscalls, use CONTINUE to let the kernel execute the original
         // syscall (critical for execve — new_val(0) would fake-succeed without loading
@@ -459,6 +486,7 @@ impl super::SeccompBuilder {
         _exec_count: &std::sync::atomic::AtomicU64,
         _exec_budget: u64,
         _credential_proxy: Option<&seccomp_handler::CredentialProxyContext>,
+        _handler_wall_start: std::time::Instant,
     ) -> Result<()> {
         Err(crate::error::PuzzledError::Sandbox(
             "seccomp requires Linux".to_string(),

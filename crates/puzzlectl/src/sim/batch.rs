@@ -122,27 +122,6 @@ async fn run_scenario(
     })
 }
 
-pub async fn run_one(
-    client: &PuzzledClient,
-    scenarios_dir: &Path,
-    name: &str,
-    profile_override: Option<&str>,
-    storage_base: &str,
-    json_output: bool,
-) -> i32 {
-    run_one_with_mode(
-        client,
-        scenarios_dir,
-        name,
-        profile_override,
-        storage_base,
-        json_output,
-        SimMode::Direct,
-        false,
-    )
-    .await
-}
-
 #[allow(clippy::too_many_arguments)]
 pub async fn run_one_with_mode(
     client: &PuzzledClient,
@@ -207,25 +186,6 @@ pub async fn run_one_with_mode(
             2
         }
     }
-}
-
-pub async fn run_all(
-    client: &PuzzledClient,
-    scenarios_dir: &Path,
-    profile_override: Option<&str>,
-    storage_base: &str,
-    json_output: bool,
-) -> i32 {
-    run_all_with_mode(
-        client,
-        scenarios_dir,
-        profile_override,
-        storage_base,
-        json_output,
-        SimMode::Direct,
-        false,
-    )
-    .await
 }
 
 pub async fn run_all_with_mode(

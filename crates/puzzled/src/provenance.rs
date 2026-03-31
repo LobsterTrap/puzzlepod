@@ -20,10 +20,8 @@ use std::sync::{Arc, Mutex};
 
 use uuid::Uuid;
 
-use crate::error::PuzzledError;
+use crate::error::{PuzzledError, Result};
 use puzzled_types::{FileChange, ProvenanceRecord, ProvenanceType};
-
-type Result<T> = std::result::Result<T, PuzzledError>;
 
 /// K83: Maximum number of write lock entries before eviction of stale entries.
 const MAX_WRITE_LOCKS: usize = 10_000;
@@ -863,6 +861,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             FileChange {
                 path: PathBuf::from("README.md"),
@@ -874,6 +874,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             FileChange {
                 path: PathBuf::from("old.txt"),
@@ -885,6 +887,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
         ];
 
@@ -940,6 +944,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         record_file_changes(&store, branch, &changes, Some(inv_id)).unwrap();

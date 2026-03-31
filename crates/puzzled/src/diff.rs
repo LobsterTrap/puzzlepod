@@ -8,6 +8,44 @@ use walkdir::WalkDir;
 
 use crate::error::{PuzzledError, Result};
 
+/// Shannon entropy of a byte buffer (0.0 for uniform, up to 8.0 for maximally random).
+fn shannon_entropy(data: &[u8]) -> f64 {
+    if data.is_empty() {
+        return 0.0;
+    }
+    let mut freq = [0u64; 256];
+    for &b in data {
+        freq[b as usize] += 1;
+    }
+    let len = data.len() as f64;
+    freq.iter()
+        .filter(|&&f| f > 0)
+        .map(|&f| {
+            let p = f as f64 / len;
+            -p * p.log2()
+        })
+        .sum()
+}
+
+/// Check whether `data` contains a run of base64-alphabet characters longer than 64
+/// on any single line. Lines are delimited by `\n` or `\r`.
+fn has_base64_blocks(data: &[u8]) -> bool {
+    let mut run = 0u32;
+    for &b in data {
+        if b == b'\n' || b == b'\r' {
+            run = 0;
+        } else if b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=' {
+            run += 1;
+            if run > 64 {
+                return true;
+            }
+        } else {
+            run = 0;
+        }
+    }
+    false
+}
+
 /// H2: Maximum directory depth for upper-layer walk to prevent
 /// pathological deep directory trees from causing stack overflow
 /// or unbounded resource consumption.
@@ -135,6 +173,8 @@ impl DiffEngine {
                     new_mode: None,
                     timestamp: read_mtime(upper_path),
                     target: None,
+                    entropy: None,
+                    has_base64_blocks: None,
                 });
                 continue;
             }
@@ -172,6 +212,8 @@ impl DiffEngine {
                             new_mode: None,
                             timestamp: read_mtime(upper_path),
                             target: upper_link_target.map(|p| p.to_string_lossy().to_string()),
+                            entropy: None,
+                            has_base64_blocks: None,
                         });
                         continue;
                     }
@@ -215,6 +257,8 @@ impl DiffEngine {
                             new_mode: Some(mode),
                             timestamp: read_mtime(upper_path),
                             target: None,
+                            entropy: None,
+                            has_base64_blocks: None,
                         });
                         continue;
                     }
@@ -234,6 +278,7 @@ impl DiffEngine {
                     tracing::warn!(path = %upper_path.display(), error = %e, "R13: checksum computation failed — using empty checksum");
                     String::new()
                 });
+                let (entropy, has_base64_blocks) = Self::content_inspection(upper_path);
                 changes.push(FileChange {
                     path: rel_path.to_path_buf(),
                     kind: FileChangeKind::Added,
@@ -244,6 +289,8 @@ impl DiffEngine {
                     new_mode: None,
                     timestamp: read_mtime(upper_path),
                     target: None,
+                    entropy,
+                    has_base64_blocks,
                 });
                 continue;
             }
@@ -279,6 +326,8 @@ impl DiffEngine {
                         new_mode: None,
                         timestamp: read_mtime(upper_path),
                         target: None,
+                        entropy: None,
+                        has_base64_blocks: None,
                     });
                     continue;
                 }
@@ -302,6 +351,7 @@ impl DiffEngine {
                     tracing::warn!(path = %upper_path.display(), error = %e, "R13: checksum computation failed — using empty checksum");
                     String::new()
                 });
+                let (entropy, has_base64_blocks) = Self::content_inspection(upper_path);
                 changes.push(FileChange {
                     path: rel_path.to_path_buf(),
                     kind: FileChangeKind::Added,
@@ -312,6 +362,8 @@ impl DiffEngine {
                     new_mode: None,
                     timestamp: read_mtime(upper_path),
                     target: None,
+                    entropy,
+                    has_base64_blocks,
                 });
                 continue;
             }
@@ -345,6 +397,12 @@ impl DiffEngine {
                     #[cfg(not(unix))]
                     let (old_mode, new_mode) = (None, None);
 
+                    let (entropy, has_base64_blocks) =
+                        if matches!(kind, FileChangeKind::Added | FileChangeKind::Modified) {
+                            Self::content_inspection(upper_path)
+                        } else {
+                            (None, None)
+                        };
                     changes.push(FileChange {
                         path: rel_path.to_path_buf(),
                         kind,
@@ -355,6 +413,8 @@ impl DiffEngine {
                         new_mode,
                         timestamp: read_mtime(upper_path),
                         target: None,
+                        entropy,
+                        has_base64_blocks,
                     });
                 }
                 None => {
@@ -477,6 +537,19 @@ impl DiffEngine {
 
         // G12: Exhausted retries — xattr keeps changing, give up
         None
+    }
+
+    /// Compute Shannon entropy and base64-block detection for a file.
+    /// Returns `(None, None)` if the file cannot be read.
+    fn content_inspection(path: &Path) -> (Option<f64>, Option<bool>) {
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(_) => return (None, None),
+        };
+        if data.is_empty() {
+            return (Some(0.0), Some(false));
+        }
+        (Some(shannon_entropy(&data)), Some(has_base64_blocks(&data)))
     }
 
     /// Check if a file is an OverlayFS whiteout.

@@ -645,7 +645,6 @@ impl PhantomTokenManager {
     ) -> Result<Vec<(String, String)>, CredentialError> {
         let mut result = Vec::new();
         let mut errors: Vec<String> = Vec::new();
-        let bid_str = branch_id.as_str();
         let store = self.credential_store.read().await;
         for mapping in mappings {
             let credential_ref = &mapping.credential_ref;
@@ -694,7 +693,6 @@ impl PhantomTokenManager {
 
             let surrogate = match generate_phantom_token(
                 &self.phantom_prefix,
-                bid_str,
                 self.phantom_entropy_bytes,
             ) {
                 Ok(s) => s,
@@ -893,7 +891,6 @@ pub fn hkdf_sha256(ikm: &[u8], info: &[u8]) -> [u8; 32] {
 // K48: Returns Result instead of panicking on getrandom failure.
 pub fn generate_phantom_token(
     prefix: &str,
-    _branch_id: &str,
     entropy_bytes: usize,
 ) -> Result<String, CredentialError> {
     // Clamp to reasonable range: at least 8 bytes (64 bits), at most 64 bytes (512 bits)
@@ -1226,7 +1223,7 @@ mod tests {
         let surrogate_first = issued[0].1.clone();
 
         // Manually insert a second token for the same branch
-        let second_surrogate = generate_phantom_token("pt_puzzled", "branch-x", 16).unwrap();
+        let second_surrogate = generate_phantom_token("pt_puzzled", 16).unwrap();
         mgr.tokens.insert(
             second_surrogate.clone(),
             PhantomToken {

@@ -5,8 +5,6 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
-use sha2::Digest as _;
-
 use crate::error::{PuzzledError, Result};
 
 /// ## M5: NamedTempFile Usage Pattern
@@ -123,25 +121,39 @@ impl WriteAheadLog {
         self.append(branch_id, &entry)?;
 
         // Remove the WAL file now that commit is complete
+        // M1: TOCTOU-safe removal — attempt remove_file directly, treat NotFound as success.
         let wal_path = self.wal_path(branch_id);
-        if wal_path.exists() {
-            fs::remove_file(&wal_path).map_err(|e| {
-                PuzzledError::Wal(format!("removing WAL {}: {}", wal_path.display(), e))
-            })?;
-            // Fsync the parent directory to ensure the deletion is durable.
-            // Without this, a crash after remove_file but before the directory
-            // metadata is flushed could leave a stale WAL file on recovery.
-            if let Some(parent) = wal_path.parent() {
-                let dir = File::open(parent).map_err(|e| {
-                    PuzzledError::Wal(format!(
-                        "opening WAL parent dir {} for fsync: {}",
-                        parent.display(),
-                        e
-                    ))
-                })?;
-                dir.sync_all().map_err(|e| {
-                    PuzzledError::Wal(format!("fsync WAL parent dir {}: {}", parent.display(), e))
-                })?;
+        match fs::remove_file(&wal_path) {
+            Ok(()) => {
+                // Fsync the parent directory to ensure the deletion is durable.
+                // Without this, a crash after remove_file but before the directory
+                // metadata is flushed could leave a stale WAL file on recovery.
+                if let Some(parent) = wal_path.parent() {
+                    let dir = File::open(parent).map_err(|e| {
+                        PuzzledError::Wal(format!(
+                            "opening WAL parent dir {} for fsync: {}",
+                            parent.display(),
+                            e
+                        ))
+                    })?;
+                    dir.sync_all().map_err(|e| {
+                        PuzzledError::Wal(format!(
+                            "fsync WAL parent dir {}: {}",
+                            parent.display(),
+                            e
+                        ))
+                    })?;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // WAL file already gone — idempotent success
+            }
+            Err(e) => {
+                return Err(PuzzledError::Wal(format!(
+                    "removing WAL {}: {}",
+                    wal_path.display(),
+                    e
+                )));
             }
         }
 
@@ -354,6 +366,57 @@ impl WriteAheadLog {
         }
     }
 
+    /// L1/M6: Collect unique parent directories from CopyFile target paths
+    /// in WAL operations. These are the base filesystem directories where
+    /// `.puzzled_old` orphan files may be left by interrupted
+    /// `renameat2(RENAME_EXCHANGE)` operations during commit.
+    ///
+    /// Safety checks applied per path:
+    /// - Must be absolute (reject relative paths that could resolve unpredictably)
+    /// - Must not be a symlink (prevent attacker-planted symlink from redirecting
+    ///   cleanup to arbitrary directories)
+    pub fn collect_base_paths_from_wal(
+        operations: &[WalOperation],
+    ) -> std::collections::HashSet<PathBuf> {
+        let mut base_paths = std::collections::HashSet::new();
+        for op in operations {
+            if let WalOperation::CopyFile { to, .. } = op {
+                if let Some(parent) = to.parent() {
+                    // Safety: only accept absolute paths
+                    if !parent.is_absolute() {
+                        tracing::warn!(
+                            path = %parent.display(),
+                            "L1/M6: skipping non-absolute base path during orphan cleanup"
+                        );
+                        continue;
+                    }
+                    // Safety: reject symlinks to prevent cleanup of arbitrary directories
+                    match std::fs::symlink_metadata(parent) {
+                        Ok(meta) if meta.file_type().is_symlink() => {
+                            tracing::warn!(
+                                path = %parent.display(),
+                                "L1/M6: skipping symlink base path during orphan cleanup (possible path traversal)"
+                            );
+                            continue;
+                        }
+                        Ok(_) => {
+                            base_paths.insert(parent.to_path_buf());
+                        }
+                        Err(e) => {
+                            // Directory may not exist (already cleaned up) — log and skip
+                            tracing::debug!(
+                                path = %parent.display(),
+                                error = %e,
+                                "L1/M6: base path not accessible during orphan cleanup (may be already cleaned)"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        base_paths
+    }
+
     /// Ensure the WAL directory exists.
     pub fn init(dir: &Path) -> Result<()> {
         fs::create_dir_all(dir)?;
@@ -363,6 +426,13 @@ impl WriteAheadLog {
     /// Path to the WAL file for a given branch.
     fn wal_path(&self, branch_id: &BranchId) -> PathBuf {
         self.wal_dir.join(format!("{}.wal", branch_id))
+    }
+
+    /// Compute a deterministic backup filename from a target path using SHA-256.
+    fn backup_filename(target: &Path) -> String {
+        use sha2::Digest;
+        let hash = sha2::Sha256::digest(target.to_string_lossy().as_bytes());
+        format!("{:x}", hash)
     }
 
     /// Verify a WAL line's CRC32 checksum and extract the JSON payload.
@@ -446,12 +516,18 @@ impl WriteAheadLog {
     /// Used during recovery to determine what needs to be rolled back.
     pub fn read_operations(&self, branch_id: &BranchId) -> Result<Vec<WalOperation>> {
         let wal_path = self.wal_path(branch_id);
-        if !wal_path.exists() {
-            return Ok(Vec::new());
-        }
-
-        let file = File::open(&wal_path)
-            .map_err(|e| PuzzledError::Wal(format!("opening {}: {}", wal_path.display(), e)))?;
+        // M1: TOCTOU-safe — attempt open directly, treat NotFound as empty.
+        let file = match File::open(&wal_path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => {
+                return Err(PuzzledError::Wal(format!(
+                    "opening {}: {}",
+                    wal_path.display(),
+                    e
+                )))
+            }
+        };
         let reader = BufReader::new(file);
 
         for line in reader.lines() {
@@ -485,12 +561,20 @@ impl WriteAheadLog {
         branch_id: &BranchId,
     ) -> Result<(Vec<WalOperation>, std::collections::HashSet<usize>)> {
         let wal_path = self.wal_path(branch_id);
-        if !wal_path.exists() {
-            return Ok((Vec::new(), std::collections::HashSet::new()));
-        }
-
-        let file = File::open(&wal_path)
-            .map_err(|e| PuzzledError::Wal(format!("opening {}: {}", wal_path.display(), e)))?;
+        // M1: TOCTOU-safe — attempt open directly, treat NotFound as empty.
+        let file = match File::open(&wal_path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok((Vec::new(), std::collections::HashSet::new()))
+            }
+            Err(e) => {
+                return Err(PuzzledError::Wal(format!(
+                    "opening {}: {}",
+                    wal_path.display(),
+                    e
+                )))
+            }
+        };
         let reader = BufReader::new(file);
 
         let mut operations = Vec::new();
@@ -551,10 +635,7 @@ impl WriteAheadLog {
 
         // Create a deterministic backup name from the target path (full SHA-256).
         // Uses the full 64 hex chars to avoid collision risk from truncation.
-        let hash = format!(
-            "{:x}",
-            sha2::Sha256::digest(target.to_string_lossy().as_bytes(),)
-        );
+        let hash = Self::backup_filename(target);
         let backup_path = backup_dir.join(&hash);
 
         // M1: Attempt copy directly instead of checking exists() first (TOCTOU).
@@ -649,10 +730,7 @@ impl WriteAheadLog {
             match &operations[idx] {
                 WalOperation::CopyFile { to, .. } => {
                     // Find the backup for this target (full SHA-256 hash)
-                    let hash = format!(
-                        "{:x}",
-                        sha2::Sha256::digest(to.to_string_lossy().as_bytes(),)
-                    );
+                    let hash = Self::backup_filename(to);
                     let backup_path = backup_dir.join(&hash);
 
                     // M1: Try to restore from backup directly, handling NotFound
@@ -691,10 +769,7 @@ impl WriteAheadLog {
                 }
                 WalOperation::DeleteFile { path } => {
                     // Find the backup of the deleted file (full SHA-256 hash)
-                    let hash = format!(
-                        "{:x}",
-                        sha2::Sha256::digest(path.to_string_lossy().as_bytes(),)
-                    );
+                    let hash = Self::backup_filename(path);
                     let backup_path = backup_dir.join(&hash);
 
                     // M1: Try to restore directly, handling NotFound as no-op.
@@ -744,10 +819,16 @@ impl WriteAheadLog {
         // to do) and orphan backups are harmless. The reverse order (remove
         // backups first, crash, then WAL still exists) would cause recovery
         // to attempt restoration from missing backups — data loss.
+        // M1: TOCTOU-safe WAL file removal — attempt remove_file directly,
+        // treat NotFound as success.
         let wal_path = self.wal_path(branch_id);
-        if wal_path.exists() {
-            // Q1: Log WAL file removal failures instead of silently discarding
-            if let Err(e) = fs::remove_file(&wal_path) {
+        match fs::remove_file(&wal_path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // WAL file already gone — idempotent success
+            }
+            Err(e) => {
+                // Q1: Log WAL file removal failures instead of silently discarding
                 tracing::warn!(error = %e, path = %wal_path.display(), "Q1: failed to remove WAL file during cleanup");
             }
         }
@@ -762,9 +843,14 @@ impl WriteAheadLog {
         }
 
         // Now safe to remove backups — WAL is gone, so recovery won't look for them.
-        if backup_dir.exists() {
-            // Q2: Log backup dir removal failures instead of silently discarding
-            if let Err(e) = fs::remove_dir_all(&backup_dir) {
+        // M1: TOCTOU-safe — attempt remove_dir_all directly, treat NotFound as success.
+        match fs::remove_dir_all(&backup_dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Backup dir already gone — idempotent success
+            }
+            Err(e) => {
+                // Q2: Log backup dir removal failures instead of silently discarding
                 tracing::warn!(error = %e, path = %backup_dir.display(), "Q2: failed to remove backup directory during cleanup");
             }
         }
@@ -817,18 +903,28 @@ impl WalWriter {
             .sync_all()
             .map_err(|e| PuzzledError::Wal(format!("fsync WAL: {}", e)))?;
 
-        // Remove the WAL file
-        if self.wal_path.exists() {
-            fs::remove_file(&self.wal_path).map_err(|e| {
-                PuzzledError::Wal(format!("removing WAL {}: {}", self.wal_path.display(), e))
-            })?;
-            if let Some(parent) = self.wal_path.parent() {
-                if let Ok(dir) = File::open(parent) {
-                    // L42: Log error instead of silently ignoring fsync failure
-                    if let Err(e) = dir.sync_all() {
-                        tracing::warn!(error = %e, "L42: directory fsync failed during WalWriter finish");
+        // M1: TOCTOU-safe WAL file removal — attempt remove_file directly,
+        // treat NotFound as success.
+        match fs::remove_file(&self.wal_path) {
+            Ok(()) => {
+                if let Some(parent) = self.wal_path.parent() {
+                    if let Ok(dir) = File::open(parent) {
+                        // L42: Log error instead of silently ignoring fsync failure
+                        if let Err(e) = dir.sync_all() {
+                            tracing::warn!(error = %e, "L42: directory fsync failed during WalWriter finish");
+                        }
                     }
                 }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // WAL file already gone — idempotent success
+            }
+            Err(e) => {
+                return Err(PuzzledError::Wal(format!(
+                    "removing WAL {}: {}",
+                    self.wal_path.display(),
+                    e
+                )));
             }
         }
 
@@ -1676,6 +1772,133 @@ mod tests {
         assert!(
             !cleanup_fn.contains("Err(_) => continue"),
             "L44: cleanup_orphan_puzzled_old_recursive must log errors on entry iteration failure, not silently continue"
+        );
+    }
+
+    // L1/M6: Tests for collect_base_paths_from_wal
+
+    #[test]
+    fn test_collect_base_paths_from_wal_extracts_parents() {
+        // Use real directories so symlink_metadata() can verify they exist
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = dir.path().join("project");
+        let sub_dir = project_dir.join("sub");
+        fs::create_dir_all(&sub_dir).unwrap();
+
+        let ops = vec![
+            WalOperation::CopyFile {
+                from: PathBuf::from("/upper/a.txt"),
+                to: project_dir.join("a.txt"),
+            },
+            WalOperation::CopyFile {
+                from: PathBuf::from("/upper/sub/b.txt"),
+                to: sub_dir.join("b.txt"),
+            },
+            WalOperation::CopyFile {
+                from: PathBuf::from("/upper/c.txt"),
+                to: project_dir.join("c.txt"),
+            },
+            WalOperation::DeleteFile {
+                path: project_dir.join("old.txt"),
+            },
+            WalOperation::SetMetadata {
+                path: project_dir.join("meta.txt"),
+            },
+        ];
+
+        let base_paths = WriteAheadLog::collect_base_paths_from_wal(&ops);
+
+        // Should contain project_dir and sub_dir (parents of CopyFile targets)
+        // DeleteFile and SetMetadata should be ignored
+        assert!(
+            base_paths.contains(&project_dir),
+            "should contain parent of project/a.txt"
+        );
+        assert!(
+            base_paths.contains(&sub_dir),
+            "should contain parent of project/sub/b.txt"
+        );
+        // Deduplication: project_dir appears from both a.txt and c.txt but only once
+        assert_eq!(base_paths.len(), 2, "should deduplicate parent directories");
+    }
+
+    #[test]
+    fn test_collect_base_paths_from_wal_rejects_relative_paths() {
+        let ops = vec![WalOperation::CopyFile {
+            from: PathBuf::from("/upper/a.txt"),
+            to: PathBuf::from("relative/path/a.txt"),
+        }];
+
+        let base_paths = WriteAheadLog::collect_base_paths_from_wal(&ops);
+        assert!(
+            base_paths.is_empty(),
+            "relative paths should be rejected for safety"
+        );
+    }
+
+    #[test]
+    fn test_collect_base_paths_from_wal_empty_operations() {
+        let ops: Vec<WalOperation> = Vec::new();
+        let base_paths = WriteAheadLog::collect_base_paths_from_wal(&ops);
+        assert!(base_paths.is_empty());
+    }
+
+    #[test]
+    fn test_collect_base_paths_from_wal_no_copy_ops() {
+        let ops = vec![
+            WalOperation::DeleteFile {
+                path: PathBuf::from("/base/old.txt"),
+            },
+            WalOperation::SetMetadata {
+                path: PathBuf::from("/base/meta.txt"),
+            },
+        ];
+
+        let base_paths = WriteAheadLog::collect_base_paths_from_wal(&ops);
+        assert!(
+            base_paths.is_empty(),
+            "should only extract from CopyFile operations"
+        );
+    }
+
+    #[test]
+    fn test_collect_base_paths_from_wal_rejects_symlink_dirs() {
+        // Create a real directory and a symlink to it
+        let dir = tempfile::tempdir().unwrap();
+        let real_dir = dir.path().join("real");
+        let symlink_dir = dir.path().join("symlink");
+        fs::create_dir_all(&real_dir).unwrap();
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real_dir, &symlink_dir).unwrap();
+
+        #[cfg(unix)]
+        {
+            let ops = vec![WalOperation::CopyFile {
+                from: PathBuf::from("/upper/a.txt"),
+                to: symlink_dir.join("a.txt"),
+            }];
+
+            let base_paths = WriteAheadLog::collect_base_paths_from_wal(&ops);
+            assert!(
+                base_paths.is_empty(),
+                "symlink parent directories should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_collect_base_paths_skips_nonexistent_dirs() {
+        let ops = vec![WalOperation::CopyFile {
+            from: PathBuf::from("/upper/a.txt"),
+            to: PathBuf::from("/nonexistent_dir_abc123/a.txt"),
+        }];
+
+        let base_paths = WriteAheadLog::collect_base_paths_from_wal(&ops);
+        // Nonexistent directory should be skipped (logged at debug level)
+        assert!(
+            base_paths.is_empty(),
+            "nonexistent parent directories should be skipped"
         );
     }
 }

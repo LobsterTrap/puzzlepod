@@ -56,6 +56,9 @@ fn make_test_manager(dir: &std::path::Path) -> puzzled::branch::BranchManager {
 
 /// T6: Test that save_state + load_state round-trips branch metadata correctly.
 ///
+/// After restart, Ready/Active entries in state.json load as `Degraded` because
+/// kernel enforcement is not re-established.
+///
 /// Simulates a daemon crash by:
 /// 1. Creating a manager, inserting branches, calling save_state()
 /// 2. Creating a NEW manager pointing at the same directory
@@ -138,18 +141,18 @@ fn test_save_load_state_roundtrip() {
 
         let branches = manager.list();
 
-        // Only Active branches with existing upper_dir should be restored
+        // Ready/Active with existing upper_dir are restored as Degraded
         assert_eq!(
             branches.len(),
             2,
-            "should restore 2 Active branches (not the Committed one)"
+            "should restore 2 previously Active branches (not the Committed one)"
         );
 
         // Verify branch-alpha was restored
         let alpha = manager.inspect(&BranchId::from("branch-alpha".to_string()));
         assert!(alpha.is_some(), "branch-alpha should be restored");
         let alpha = alpha.unwrap();
-        assert_eq!(alpha.state, BranchState::Active);
+        assert_eq!(alpha.state, BranchState::Degraded);
         assert_eq!(alpha.profile, "standard");
         assert_eq!(alpha.uid, 1000);
 
@@ -157,7 +160,7 @@ fn test_save_load_state_roundtrip() {
         let beta = manager.inspect(&BranchId::from("branch-beta".to_string()));
         assert!(beta.is_some(), "branch-beta should be restored");
         let beta = beta.unwrap();
-        assert_eq!(beta.state, BranchState::Active);
+        assert_eq!(beta.state, BranchState::Degraded);
         assert_eq!(beta.profile, "restricted");
         assert_eq!(beta.uid, 1001);
 

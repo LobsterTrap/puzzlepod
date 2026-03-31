@@ -12,6 +12,34 @@ use crate::error::Result;
 /// - Is inherited by all child processes
 pub struct LandlockBuilder;
 
+/// Log conflicts where a read allowlist path prefixes a read denylist path.
+///
+/// Landlock is allowlist-based: granting read on a directory allows the whole
+/// subtree. A `read_denylist` entry under that tree is ineffective until the
+/// path exists and canonicalizes; operators need an explicit ERROR when the
+/// profile pairs a broad allow with a narrower deny.
+#[cfg(target_os = "linux")]
+fn log_read_allowlist_parent_of_read_denylist_conflicts(
+    read_allowlist: &[std::path::PathBuf],
+    read_denylist: &[std::path::PathBuf],
+) {
+    for allow in read_allowlist {
+        let allow = allow.as_path();
+        for deny in read_denylist {
+            let deny = deny.as_path();
+            if deny.starts_with(allow) && deny != allow {
+                tracing::error!(
+                    read_allowlist = %allow.display(),
+                    read_denylist = %deny.display(),
+                    "read_allowlist path is a parent of read_denylist path; Landlock allows the \
+                     entire parent subtree, so read_denylist cannot exclude a descendant that is \
+                     not yet present or not canonicalized"
+                );
+            }
+        }
+    }
+}
+
 impl LandlockBuilder {
     /// Build and apply a Landlock ruleset from an agent profile.
     ///
@@ -32,8 +60,8 @@ impl LandlockBuilder {
         proxy_port: Option<u16>,
     ) -> Result<()> {
         use landlock::{
-            Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
-            RulesetStatus, ABI,
+            Access, AccessFs, LandlockStatus, PathBeneath, PathFd, Ruleset, RulesetAttr,
+            RulesetCreatedAttr, RulesetStatus, ABI,
         };
 
         // m18: Request ABI V5 (includes IOCTL_DEV), falling back to V4 (6.7+),
@@ -97,11 +125,12 @@ impl LandlockBuilder {
                     // M-ll1: Skip uncanonicalized denylist entries — using a raw path
                     // could miss the actual target if symlinks are involved, allowing
                     // an agent to bypass the denylist.
-                    tracing::warn!(
+                    tracing::error!(
                         path = %d.display(),
                         error = %e,
                         "denylist path canonicalization failed, skipping entry \
-                         (raw path could miss target due to symlinks)"
+                         (raw path could miss target due to symlinks); skipped denylist \
+                         provides no protection until the path exists"
                     );
                     None
                 }
@@ -118,11 +147,12 @@ impl LandlockBuilder {
                 Ok(canonical) => Some(canonical),
                 Err(e) => {
                     // M-ll1: Same canonicalization fallback as general denylist.
-                    tracing::warn!(
+                    tracing::error!(
                         path = %d.display(),
                         error = %e,
                         "read_denylist path canonicalization failed, skipping entry \
-                         (raw path could miss target due to symlinks)"
+                         (raw path could miss target due to symlinks); skipped entry \
+                         provides no read exclusion until the path exists"
                     );
                     None
                 }
@@ -137,16 +167,22 @@ impl LandlockBuilder {
                 Ok(canonical) => Some(canonical),
                 Err(e) => {
                     // M-ll1: Same canonicalization fallback as general denylist.
-                    tracing::warn!(
+                    tracing::error!(
                         path = %d.display(),
                         error = %e,
                         "write_denylist path canonicalization failed, skipping entry \
-                         (raw path could miss target due to symlinks)"
+                         (raw path could miss target due to symlinks); skipped entry \
+                         provides no write exclusion until the path exists"
                     );
                     None
                 }
             })
             .collect();
+
+        log_read_allowlist_parent_of_read_denylist_conflicts(
+            &profile.filesystem.read_allowlist,
+            &profile.filesystem.read_denylist,
+        );
 
         // S2: Helper to canonicalize a path for denylist comparison.
         // If canonicalize fails, treat the path as DENYLISTED (fail-closed)
@@ -365,26 +401,6 @@ impl LandlockBuilder {
         {
             use landlock::{AccessNet, NetPort};
 
-            // M10: Runtime ABI version check — warn if kernel ABI < v4.
-            // Landlock network access control requires ABI v4 (kernel 6.7+).
-            // On older kernels, the network ruleset will be silently degraded
-            // (handled by the landlock crate's best-effort ABI negotiation),
-            // but we log an explicit warning for operators.
-            //
-            // NOTE: The actual enforcement check happens in restrict_self() below,
-            // where the landlock crate reports PartiallyEnforced or NotEnforced
-            // for unsupported features. This is a proactive warning only.
-            // PM7: Proactive ABI version check — warn operators if kernel ABI < v4.
-            // Landlock ConnectTcp/BindTcp rules are port-only restrictions (an ABI v4
-            // limitation — IP/CIDR/domain filtering is NOT possible via Landlock and
-            // requires nftables + seccomp USER_NOTIF defense-in-depth layers).
-            // The actual enforcement check happens in restrict_self() below, where
-            // PartiallyEnforced/NotEnforced indicates the kernel lacks ABI v4 support.
-            tracing::warn!(
-                "Landlock ABI v4 (kernel 6.7+) required for ConnectTcp/BindTcp network rules; \
-                 restrict_self() will report actual enforcement status below"
-            );
-
             // PM5: Use the proxy port from config instead of hardcoding.
             // Falls back to 3128 (the default_proxy_port from config.rs) if not provided.
             let proxy_port_val: u16 = proxy_port.unwrap_or(3128);
@@ -430,6 +446,33 @@ impl LandlockBuilder {
                     e
                 ))
             })?;
+
+            if let LandlockStatus::Available { effective_abi, .. } = net_status.landlock {
+                if effective_abi < ABI::V5 {
+                    tracing::info!(
+                        negotiated_abi = %effective_abi,
+                        "Landlock negotiated ABI v{} (requested v5) — IOCTL_DEV restrictions unavailable on this kernel",
+                        effective_abi,
+                    );
+                }
+                // FailClosed + Gated/Blocked requires kernel Landlock network ABI (v4+). Refuse
+                // when the negotiated ABI is below v4, not only when ruleset status is partial.
+                if profile.fail_mode == puzzled_types::FailMode::FailClosed
+                    && matches!(
+                        profile.network.mode,
+                        puzzled_types::NetworkMode::Gated | puzzled_types::NetworkMode::Blocked
+                    )
+                    && effective_abi < ABI::V4
+                {
+                    return Err(crate::error::PuzzledError::Sandbox(format!(
+                        "Landlock effective ABI v{} is below v4 — network restrictions unavailable \
+                         on this kernel; fail_mode is FailClosed with network mode {:?}. \
+                         Refusing to create sandbox.",
+                        effective_abi,
+                        profile.network.mode,
+                    )));
+                }
+            }
 
             match net_status.ruleset {
                 RulesetStatus::FullyEnforced => {

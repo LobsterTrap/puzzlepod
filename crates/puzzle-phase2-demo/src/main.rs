@@ -288,6 +288,8 @@ fn demo_conflict() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
 
     let unique_a = FileChange {
@@ -300,6 +302,8 @@ fn demo_conflict() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
 
     let unique_b = FileChange {
@@ -312,6 +316,8 @@ fn demo_conflict() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
 
     // Test 1: Reject strategy (default)

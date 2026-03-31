@@ -25,6 +25,7 @@ pub mod provenance;
 pub mod sandbox;
 pub mod seccomp_handler;
 pub mod seccomp_profile;
+pub(crate) mod sync_util;
 pub mod trust;
 pub mod wal;
 

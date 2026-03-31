@@ -13,7 +13,6 @@
     "network",
     "behavioral"
   ],
-  "additionalProperties": false,
   "properties": {
     "name": {
       "type": "string",
@@ -44,7 +43,7 @@
             "type": "string",
             "pattern": "^/"
           },
-          "description": "List of absolute paths the agent is permitted to read. Paths are recursive (include all descendants)."
+          "description": "List of absolute paths the agent is permitted to read. Paths are recursive (include all descendants). Glob segments (e.g. *) may appear in path strings."
         },
         "write_allowlist": {
           "type": "array",
@@ -61,6 +60,22 @@
             "pattern": "^/"
           },
           "description": "List of absolute paths the agent is denied access to. Denylist takes precedence over allowlists."
+        },
+        "read_denylist": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "description": "Paths explicitly denied for reading. Takes precedence over read_allowlist (defense in depth)."
+        },
+        "write_denylist": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "description": "Paths explicitly denied for writing. Takes precedence over write_allowlist."
         }
       }
     },
@@ -77,25 +92,9 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^/"
+        "pattern": "^[a-zA-Z0-9_./]"
       },
-      "description": "List of absolute paths to executables the agent is explicitly denied from running. Denylist takes precedence over exec_allowlist."
-    },
-    "read_denylist": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "pattern": "^/"
-      },
-      "description": "List of absolute paths the agent is explicitly denied from reading. Denylist takes precedence over filesystem.read_allowlist."
-    },
-    "write_denylist": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "pattern": "^/"
-      },
-      "description": "List of absolute paths the agent is explicitly denied from writing. Denylist takes precedence over filesystem.write_allowlist."
+      "description": "Executables denied from running (basename or path). Denylist takes precedence over exec_allowlist."
     },
     "capabilities": {
       "type": "array",
@@ -142,7 +141,7 @@
         "max_pids": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 32768,
+          "maximum": 4194304,
           "default": 64,
           "description": "Maximum number of processes (PIDs) the agent may create. Enforced via cgroup v2 pids.max."
         },
@@ -187,7 +186,7 @@
           "items": {
             "type": "string"
           },
-          "description": "List of domain names (or wildcard patterns like *.example.com) permitted when mode is Gated. Ignored for other modes."
+          "description": "List of domain names (or wildcard patterns like *.example.com) permitted when mode is Gated. Use [\"*\"] for gated proxy without domain filtering. Ignored for other modes."
         }
       },
       "if": {
@@ -224,7 +223,7 @@
         },
         "max_reads_per_minute": {
           "type": "integer",
-          "minimum": 0,
+          "minimum": 1,
           "maximum": 1000000,
           "default": 1000,
           "description": "Maximum file read operations per minute before triggering a behavioral alert. Prevents data exfiltration via rapid enumeration."
@@ -246,6 +245,20 @@
       ],
       "default": "FailClosed",
       "description": "Behavior when governance evaluation fails or puzzled encounters an error. FailClosed: rollback pending changes (default). FailSilent: hold last known safe state. FailOperational: continue with reduced capability. FailSafeState: enter controlled safe state (for safety-critical deployments)."
+    },
+    "seccomp_mode": {
+      "type": "string",
+      "enum": [
+        "Permissive",
+        "Strict"
+      ],
+      "default": "Permissive",
+      "description": "seccomp strategy: Permissive (default-allow + denylist) or Strict (default-deny + syscall allowlist)."
+    },
+    "allow_symlinks": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether symlink creation is allowed in agent changesets. When false, symlink writes are rejected."
     }
   }
 }

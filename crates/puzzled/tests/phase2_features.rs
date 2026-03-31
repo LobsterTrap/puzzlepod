@@ -34,6 +34,8 @@ fn test_conflict_detection_three_branches() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
 
     detector.register_changes(&branch_a, &base, std::slice::from_ref(&change));
@@ -64,6 +66,8 @@ fn test_conflict_resolution_reject() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
 
     detector.register_changes(&branch_a, &base, std::slice::from_ref(&change));
@@ -116,6 +120,8 @@ fn test_conflict_modified_and_deleted() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
     detector.register_changes(&branch_a, &base, &[change_a]);
 
@@ -130,6 +136,8 @@ fn test_conflict_modified_and_deleted() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
     detector.register_changes(&branch_b, &base, std::slice::from_ref(&change_b));
 
@@ -159,6 +167,8 @@ fn test_conflict_unregister_after_commit() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
 
     detector.register_changes(&branch_a, &base, std::slice::from_ref(&change));
@@ -531,6 +541,8 @@ fn test_conflict_free_commit_escalates_budget() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         };
 
         conflict_detector.register_changes(&branch, &base, std::slice::from_ref(&change));
@@ -582,6 +594,8 @@ fn test_conflict_rejection_deescalates_budget() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
 
     conflict_detector.register_changes(&branch_a, &base, std::slice::from_ref(&change));
@@ -624,6 +638,8 @@ fn test_conflict_detection_with_frozen_branch() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
 
     // branch_a is "frozen" (registered changes before freeze)
@@ -836,6 +852,8 @@ fn test_conflict_detection_100_branches_overlapping_files() {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             });
         }
 
@@ -850,6 +868,8 @@ fn test_conflict_detection_100_branches_overlapping_files() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         });
 
         detector.register_changes(branch_id, &base, &changes);
@@ -868,6 +888,8 @@ fn test_conflict_detection_100_branches_overlapping_files() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         })
         .collect();
 
@@ -912,6 +934,8 @@ fn test_conflict_detection_100_branches_no_overlap() {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             FileChange {
                 path: PathBuf::from(format!("project_{}/lib.rs", i)),
@@ -923,6 +947,8 @@ fn test_conflict_detection_100_branches_no_overlap() {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
         ];
         detector.register_changes(branch_id, &base, &changes);
@@ -940,6 +966,8 @@ fn test_conflict_detection_100_branches_no_overlap() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let conflicts = detector.check_conflicts(branch_id, &base, &changes);
@@ -968,6 +996,8 @@ fn test_conflict_detection_100_branches_progressive_registration() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
 
     let mut active_count = 0;
@@ -1203,6 +1233,8 @@ fn test_budget_violation_coupling_with_conflict_detection() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     };
 
     conflict_detector.register_changes(&branch_a, &base, std::slice::from_ref(&change));
@@ -1283,6 +1315,8 @@ fn test_conflict_detector_concurrent_access() {
                     new_mode: None,
                     timestamp: None,
                     target: None,
+                    entropy: None,
+                    has_base64_blocks: None,
                 },
                 FileChange {
                     path: PathBuf::from(format!("unique_file_{i}.txt")),
@@ -1294,6 +1328,8 @@ fn test_conflict_detector_concurrent_access() {
                     new_mode: None,
                     timestamp: None,
                     target: None,
+                    entropy: None,
+                    has_base64_blocks: None,
                 },
             ];
             let mut det = detector.lock().unwrap();

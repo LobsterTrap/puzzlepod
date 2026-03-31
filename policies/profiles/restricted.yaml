@@ -96,7 +96,4 @@ behavioral:
 fail_mode: FailClosed
 allow_symlinks: false
 
-# Permissive mode: default-allow seccomp with deny list for dangerous
-# syscalls. Strict mode's allowlist is too narrow for real workloads
-# (e.g. Python needs many syscalls not in the allowlist).
-seccomp_mode: Permissive
+seccomp_mode: Strict

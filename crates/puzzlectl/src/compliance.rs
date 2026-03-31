@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use puzzled_types::AgentProfile;
+use puzzled_types::AuditRecord;
 use serde::{Deserialize, Serialize};
 
 /// M5: Default attestation directory — should match DaemonConfig::attestation::attestation_dir.
@@ -403,20 +404,7 @@ pub fn get_framework(id: &str) -> Result<&'static FrameworkDef> {
 // Audit record loading
 // ---------------------------------------------------------------------------
 
-/// Minimal audit record for compliance analysis (deserialized from NDJSON).
-#[derive(Serialize, Deserialize)]
-pub struct AuditRecord {
-    pub seq: u64,
-    pub timestamp: String,
-    pub event: AuditRecordEvent,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct AuditRecordEvent {
-    pub event_type: String,
-    pub branch_id: Option<String>,
-    pub details: serde_json::Value,
-}
+// V49: AuditRecord and AuditRecordEvent are now unified in puzzled_types::audit.
 
 /// Result of loading audit records, including parse statistics.
 pub struct AuditLoadResult {
@@ -1785,6 +1773,7 @@ fn is_leap_year(y: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use puzzled_types::AuditRecordEvent;
     use std::io::Write as _;
 
     // -- Framework definitions --
@@ -2736,6 +2725,7 @@ mod tests {
                 branch_id: Some("test-branch".to_string()),
                 details: serde_json::json!({}),
             },
+            ..Default::default()
         }
     }
 
@@ -2748,6 +2738,7 @@ mod tests {
                 branch_id: Some(branch_id.to_string()),
                 details: serde_json::json!({}),
             },
+            ..Default::default()
         }
     }
 
@@ -2765,6 +2756,7 @@ mod tests {
                 branch_id: Some(branch_id.to_string()),
                 details,
             },
+            ..Default::default()
         }
     }
 
@@ -2777,6 +2769,7 @@ mod tests {
                 branch_id: Some("test-branch".to_string()),
                 details: serde_json::json!({"reason": reason}),
             },
+            ..Default::default()
         }
     }
 
@@ -2789,6 +2782,7 @@ mod tests {
                 branch_id: Some(branch_id.to_string()),
                 details: serde_json::json!({"reason": reason}),
             },
+            ..Default::default()
         }
     }
 

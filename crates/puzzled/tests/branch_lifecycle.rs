@@ -9,78 +9,22 @@
 use std::fs;
 use std::path::PathBuf;
 
-use std::sync::{Arc, Mutex};
-
 use puzzled_types::{BranchState, PolicyDecision};
+
+mod common;
 
 /// Full lifecycle: create branch -> write files -> commit
 #[test]
 #[ignore] // Requires root on Linux
 fn test_full_fork_explore_commit() {
     let dir = tempfile::tempdir().unwrap();
-    let branch_root = dir.path().join("branches");
     let base_path = dir.path().join("workspace");
-    let profiles_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("policies")
-        .join("profiles");
-    let policies_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("policies")
-        .join("rules");
-
-    fs::create_dir_all(&branch_root).unwrap();
     fs::create_dir_all(&base_path).unwrap();
 
     // Write a base file
     fs::write(base_path.join("existing.txt"), "original content").unwrap();
 
-    let config = puzzled::config::DaemonConfig {
-        branch_root: branch_root.clone(),
-        profiles_dir: profiles_dir.clone(),
-        policies_dir: policies_dir.clone(),
-        max_branches: 64,
-        bus_type: "session".to_string(),
-        fs_type: "ext4".to_string(),
-        log_level: "debug".to_string(),
-        watchdog_timeout_secs: 30,
-        ..Default::default()
-    };
-
-    let mut profile_loader = puzzled::profile::ProfileLoader::new(profiles_dir);
-    profile_loader.load_all().unwrap();
-
-    let policy_engine = puzzled::policy::PolicyEngine::new(policies_dir);
-    policy_engine.reload().unwrap();
-
-    let wal_dir = branch_root.join("wal");
-    puzzled::wal::WriteAheadLog::init(&wal_dir).unwrap();
-    let wal = puzzled::wal::WriteAheadLog::new(wal_dir);
-
-    let audit = puzzled::audit::AuditLogger::new();
-
-    let conflict_detector = Arc::new(Mutex::new(puzzled::conflict::ConflictDetector::new()));
-    let budget_manager = Arc::new(Mutex::new(puzzled::budget::BudgetManager::new()));
-
-    let seccomp_handler = puzzled::seccomp_handler::SeccompNotifHandler::spawn();
-    let manager = puzzled::branch::BranchManager::new(
-        config,
-        profile_loader,
-        policy_engine,
-        wal,
-        Arc::new(audit),
-        None,
-        conflict_detector,
-        budget_manager,
-        Some(seccomp_handler),
-        None,
-    );
+    let manager = common::make_manager(dir.path());
 
     // Fork: create a branch
     let info = manager
@@ -108,66 +52,10 @@ fn test_full_fork_explore_commit() {
 #[ignore] // Requires root on Linux
 fn test_rollback_discards_changes() {
     let dir = tempfile::tempdir().unwrap();
-    let branch_root = dir.path().join("branches");
     let base_path = dir.path().join("workspace");
-    let profiles_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("policies")
-        .join("profiles");
-    let policies_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("policies")
-        .join("rules");
-
-    fs::create_dir_all(&branch_root).unwrap();
     fs::create_dir_all(&base_path).unwrap();
 
-    let config = puzzled::config::DaemonConfig {
-        branch_root: branch_root.clone(),
-        profiles_dir: profiles_dir.clone(),
-        policies_dir: policies_dir.clone(),
-        max_branches: 64,
-        bus_type: "session".to_string(),
-        fs_type: "ext4".to_string(),
-        log_level: "debug".to_string(),
-        watchdog_timeout_secs: 30,
-        ..Default::default()
-    };
-
-    let mut profile_loader = puzzled::profile::ProfileLoader::new(profiles_dir);
-    profile_loader.load_all().unwrap();
-
-    let policy_engine = puzzled::policy::PolicyEngine::new(policies_dir);
-    policy_engine.reload().unwrap();
-
-    let wal_dir = branch_root.join("wal");
-    puzzled::wal::WriteAheadLog::init(&wal_dir).unwrap();
-    let wal = puzzled::wal::WriteAheadLog::new(wal_dir);
-
-    let audit = puzzled::audit::AuditLogger::new();
-
-    let conflict_detector = Arc::new(Mutex::new(puzzled::conflict::ConflictDetector::new()));
-    let budget_manager = Arc::new(Mutex::new(puzzled::budget::BudgetManager::new()));
-
-    let seccomp_handler = puzzled::seccomp_handler::SeccompNotifHandler::spawn();
-    let manager = puzzled::branch::BranchManager::new(
-        config,
-        profile_loader,
-        policy_engine,
-        wal,
-        Arc::new(audit),
-        None,
-        conflict_detector,
-        budget_manager,
-        Some(seccomp_handler),
-        None,
-    );
+    let manager = common::make_manager(dir.path());
 
     let info = manager
         .create("standard", &base_path, 1000, vec![])
@@ -193,62 +81,7 @@ fn test_rollback_discards_changes() {
 // T7: Policy rejection -> rollback flow
 // ---------------------------------------------------------------------------
 
-/// Helper to create a BranchManager for policy rejection tests.
-fn make_policy_rejection_manager(
-    dir: &std::path::Path,
-    policy_dir: &std::path::Path,
-) -> puzzled::branch::BranchManager {
-    let branch_root = dir.join("branches");
-    let profiles_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("policies")
-        .join("profiles");
-
-    fs::create_dir_all(&branch_root).unwrap();
-
-    let config = puzzled::config::DaemonConfig {
-        branch_root: branch_root.clone(),
-        profiles_dir: profiles_dir.clone(),
-        policies_dir: policy_dir.to_path_buf(),
-        max_branches: 64,
-        bus_type: "session".to_string(),
-        fs_type: "ext4".to_string(),
-        log_level: "debug".to_string(),
-        watchdog_timeout_secs: 30,
-        ..Default::default()
-    };
-
-    let mut profile_loader = puzzled::profile::ProfileLoader::new(profiles_dir);
-    profile_loader.load_all().unwrap();
-
-    let policy_engine = puzzled::policy::PolicyEngine::new(policy_dir.to_path_buf());
-    policy_engine.reload().unwrap();
-
-    let wal_dir = branch_root.join("wal");
-    puzzled::wal::WriteAheadLog::init(&wal_dir).unwrap();
-    let wal = puzzled::wal::WriteAheadLog::new(wal_dir);
-
-    let audit = puzzled::audit::AuditLogger::new();
-    let conflict_detector = Arc::new(Mutex::new(puzzled::conflict::ConflictDetector::new()));
-    let budget_manager = Arc::new(Mutex::new(puzzled::budget::BudgetManager::new()));
-
-    let seccomp_handler = puzzled::seccomp_handler::SeccompNotifHandler::spawn();
-    puzzled::branch::BranchManager::new(
-        config,
-        profile_loader,
-        policy_engine,
-        wal,
-        Arc::new(audit),
-        None,
-        conflict_detector,
-        budget_manager,
-        Some(seccomp_handler),
-        None,
-    )
-}
+// make_policy_rejection_manager is now common::make_manager_with_policies
 
 /// Test that OPA policy rejection causes proper branch rollback and cleanup.
 ///
@@ -265,15 +98,9 @@ fn test_policy_rejection_triggers_rollback() {
     let base_path = dir.path().join("workspace");
     fs::create_dir_all(&base_path).unwrap();
 
-    let policies_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("policies")
-        .join("rules");
+    let policies_dir = common::policies_dir();
 
-    let manager = make_policy_rejection_manager(dir.path(), &policies_dir);
+    let manager = common::make_manager_with_policies(dir.path(), &policies_dir);
 
     // Create a branch
     let info = manager
@@ -327,15 +154,9 @@ fn test_policy_rejection_system_files() {
     let base_path = dir.path().join("workspace");
     fs::create_dir_all(&base_path).unwrap();
 
-    let policies_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("policies")
-        .join("rules");
+    let policies_dir = common::policies_dir();
 
-    let manager = make_policy_rejection_manager(dir.path(), &policies_dir);
+    let manager = common::make_manager_with_policies(dir.path(), &policies_dir);
 
     let info = manager
         .create("standard", &base_path, 1000, vec![])
@@ -393,6 +214,8 @@ fn test_policy_rejection_no_policies_loaded() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy_engine.evaluate(&changes, None).unwrap();

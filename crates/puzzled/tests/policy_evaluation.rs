@@ -89,6 +89,8 @@ fn test_diff_to_policy_reject_system_path() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let policy = create_policy_engine();
@@ -126,6 +128,8 @@ fn test_multiple_clean_files_approved() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         puzzled_types::FileChange {
             path: PathBuf::from("src/utils.rs"),
@@ -137,6 +141,8 @@ fn test_multiple_clean_files_approved() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         puzzled_types::FileChange {
             path: PathBuf::from("tests/test.rs"),
@@ -148,6 +154,8 @@ fn test_multiple_clean_files_approved() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
     ];
 
@@ -174,6 +182,8 @@ fn t18_rego_empty_path_rejected() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
@@ -207,6 +217,8 @@ fn t18_rego_dotdot_traversal_in_sensitive_path() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
@@ -242,6 +254,8 @@ fn t18_rego_null_byte_in_path() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     // The policy engine should not panic. Whether it rejects depends on whether
@@ -268,6 +282,8 @@ fn t18_rego_persistence_path_traversal() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
@@ -305,6 +321,8 @@ fn t19_rego_no_false_positive_env_like_names() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         puzzled_types::FileChange {
             path: PathBuf::from("scripts/env_setup.py"),
@@ -316,6 +334,8 @@ fn t19_rego_no_false_positive_env_like_names() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         puzzled_types::FileChange {
             path: PathBuf::from("docs/environment-variables.md"),
@@ -327,6 +347,8 @@ fn t19_rego_no_false_positive_env_like_names() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
     ];
 
@@ -354,6 +376,8 @@ fn t19_rego_no_false_positive_ssh_like_names() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         puzzled_types::FileChange {
             path: PathBuf::from("docs/ssh-usage.md"),
@@ -365,6 +389,8 @@ fn t19_rego_no_false_positive_ssh_like_names() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
     ];
 
@@ -393,6 +419,8 @@ fn t19_rego_no_false_positive_shadow_like_names() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         puzzled_types::FileChange {
             path: PathBuf::from("shadow-dom/index.js"),
@@ -404,6 +432,8 @@ fn t19_rego_no_false_positive_shadow_like_names() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
     ];
 
@@ -433,6 +463,8 @@ fn t19_rego_no_false_positive_system_adjacent_paths() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
         puzzled_types::FileChange {
             path: PathBuf::from("project/boot-config.yaml"),
@@ -444,6 +476,8 @@ fn t19_rego_no_false_positive_system_adjacent_paths() {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         },
     ];
 
@@ -472,6 +506,8 @@ fn t19_rego_metadata_change_correctly_flagged() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
@@ -503,6 +539,8 @@ fn t20_rego_rejects_ecdsa_private_key() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
     let decision = policy.evaluate(&changes, None).unwrap();
     match decision {
@@ -530,6 +568,8 @@ fn t20_rego_rejects_dsa_private_key() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
     let decision = policy.evaluate(&changes, None).unwrap();
     match decision {
@@ -557,6 +597,8 @@ fn t20_rego_rejects_ecdsa_sk_security_key() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
     let decision = policy.evaluate(&changes, None).unwrap();
     match decision {
@@ -584,6 +626,8 @@ fn t20_rego_rejects_ed25519_sk_security_key() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
     let decision = policy.evaluate(&changes, None).unwrap();
     match decision {
@@ -616,6 +660,8 @@ fn assert_persistence_rejected(path: &str, description: &str) {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
     let decision = policy.evaluate(&changes, None).unwrap();
     match decision {
@@ -647,6 +693,8 @@ fn assert_sensitive_file_rejected(path: &str, description: &str) {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
     let decision = policy.evaluate(&changes, None).unwrap();
     match decision {
@@ -779,6 +827,8 @@ fn test_r19_rego_rejects_at_daemon_persistence() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
@@ -959,6 +1009,8 @@ fn test_f10_absolute_path_without_workspace_root_rejected() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     // Evaluate WITHOUT workspace_root (None) — absolute path should be flagged
@@ -1050,6 +1102,8 @@ fn test_g5_sensitive_files_case_insensitive() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
@@ -1098,6 +1152,7 @@ fn test_g17_symlink_workspace_prefix_attack() {
             "target": "/workspacevil/exfil"
         }],
         "profile": "privileged",
+        "allow_symlinks": true,
         "workspace_root": "/workspace"
     });
 
@@ -1338,6 +1393,8 @@ fn test_h83_credentials_helper_not_blocked() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
     let decision = policy.evaluate(&changes, None).unwrap();
     assert!(
@@ -1377,6 +1434,8 @@ fn test_h84_persistence_path_mixed_case_caught() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
     let decision = policy.evaluate(&changes, None).unwrap();
     match decision {
@@ -1412,6 +1471,8 @@ fn test_h85_system_prefix_mixed_case_caught() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
     let decision = policy.evaluate(&changes, None).unwrap();
     match decision {
@@ -1504,6 +1565,8 @@ fn test_h92_persistence_suffix_mixed_case_caught() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
     let decision = policy.evaluate(&changes, None).unwrap();
     match decision {
@@ -1543,6 +1606,8 @@ fn j82_profile_storage_quota_restricted() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     // J82: Pass profile_name = "restricted" so the Rego input.profile triggers
@@ -1585,6 +1650,8 @@ fn j83_deny_outside_workspace() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     // J83: Pass workspace_root so the deny_outside_workspace rule fires.
@@ -1753,6 +1820,8 @@ fn test_j60_persistence_exact_files_case_insensitive() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
@@ -1788,6 +1857,8 @@ fn test_j61_path_traversal_in_changeset() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
@@ -1999,6 +2070,7 @@ fn test_k60_symlink_target_outside_workspace_rejected() {
             "target": "/etc/shadow"
         }],
         "profile": "privileged",
+        "allow_symlinks": true,
         "workspace_root": "/home/agent/workspace"
     });
 
@@ -2019,7 +2091,7 @@ fn test_k60_symlink_target_outside_workspace_rejected() {
 #[test]
 fn test_k60_filechange_has_target_field() {
     // K60: Verify that FileChange struct has a target field
-    let source = include_str!("../../../crates/puzzled-types/src/lib.rs");
+    let source = include_str!("../../../crates/puzzled-types/src/change.rs");
     assert!(
         source.contains("pub target: Option<String>"),
         "K60: FileChange struct must have pub target: Option<String> field"
@@ -2119,6 +2191,8 @@ fn test_k63_at_spool_persistence_rejected() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
@@ -2383,7 +2457,7 @@ fn test_r1_g18_severity_lowercase_critical() {
 }
 
 // ---------------------------------------------------------------------------
-// R1: deny_setuid_setgid rule
+// R1: deny_suid_binary rule
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -2401,14 +2475,16 @@ fn test_r1_deny_setuid_setgid() {
         new_mode: Some(0o104755), // setuid + rwxr-xr-x
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
     match decision {
         PolicyDecision::Rejected(violations) => {
             assert!(
-                violations.iter().any(|v| v.rule == "deny_setuid_setgid"),
-                "R1: setuid file should trigger deny_setuid_setgid, got: {:?}",
+                violations.iter().any(|v| v.rule == "deny_suid_binary"),
+                "R1: setuid file should trigger deny_suid_binary, got: {:?}",
                 violations
             );
         }
@@ -2431,14 +2507,16 @@ fn test_r1_deny_setgid() {
         new_mode: Some(0o102755), // setgid + rwxr-xr-x
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
     match decision {
         PolicyDecision::Rejected(violations) => {
             assert!(
-                violations.iter().any(|v| v.rule == "deny_setuid_setgid"),
-                "R1: setgid file should trigger deny_setuid_setgid, got: {:?}",
+                violations.iter().any(|v| v.rule == "deny_suid_binary"),
+                "R1: setgid file should trigger deny_suid_binary, got: {:?}",
                 violations
             );
         }
@@ -2461,6 +2539,8 @@ fn test_r1_no_setuid_setgid_allows() {
         new_mode: Some(0o100755), // rwxr-xr-x, no setuid/setgid
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();
@@ -2489,6 +2569,8 @@ fn test_r1_tmp_writes_rejected() {
         new_mode: None,
         timestamp: None,
         target: None,
+        entropy: None,
+        has_base64_blocks: None,
     }];
 
     let decision = policy.evaluate(&changes, None).unwrap();

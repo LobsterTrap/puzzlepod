@@ -11,7 +11,7 @@
 7. [Attestation Chain](#attestation-chain)
 8. [Trust Scoring](#trust-scoring)
 9. [Workload Identity (JWT-SVID)](#workload-identity-jwt-svid)
-10. [IMA Manifest Signing](#ima-manifest-signing)
+10. [Ed25519 Changeset Signing](#ed25519-changeset-signing)
 11. [Network Gating Architecture](#network-gating-architecture)
 12. [Behavioral Monitoring](#behavioral-monitoring)
 13. [Audit Trail](#audit-trail)
@@ -172,7 +172,7 @@ Every known escape vector is blocked by at least two independent mechanisms.
 | Modify SELinux policy | `security` | **BLOCKED** (static deny) | N/A | N/A | neverallow | No `CAP_MAC_ADMIN` |
 | Raw network socket | `socket(AF_PACKET)` | **BLOCKED** (static deny) | N/A | Net NS | neverallow | No `CAP_NET_RAW` |
 | Reboot system | `reboot` | **BLOCKED** (static deny) | N/A | N/A | neverallow | No `CAP_SYS_BOOT` |
-| Change hostname | `sethostname` | **BLOCKED** (static deny) | N/A | UTS NS | neverallow | No `CAP_SYS_ADMIN` |
+| Change hostname | `sethostname`, `setdomainname` | **BLOCKED** (static deny) | N/A | UTS NS | neverallow | No `CAP_SYS_ADMIN`; dual mitigation with UTS namespace |
 | iopl / ioperm | `iopl`, `ioperm` | **BLOCKED** (static deny) | N/A | N/A | neverallow | No `CAP_SYS_RAWIO` |
 | kexec load | `kexec_load` | **BLOCKED** (static deny) | N/A | N/A | neverallow | No `CAP_SYS_BOOT` |
 | BPF program load | `bpf` | **BLOCKED** (static deny) | N/A | N/A | neverallow | No `CAP_BPF` |
@@ -186,7 +186,7 @@ Every known escape vector is blocked by at least two independent mechanisms.
 | Cross-process memory | `process_vm_readv/writev` | **BLOCKED** (static deny) | N/A | PID NS (invisible) | N/A | Cannot read/write other processes' memory |
 | Handle-based file access | `name_to_handle_at`, `open_by_handle_at` | **BLOCKED** (static deny) | N/A | N/A | N/A | Bypasses path-based Landlock checks |
 | Fileless execution | `memfd_create` + `execve` | **BLOCKED** (static deny) | N/A | N/A | N/A | Prevents running code without filesystem writes |
-| Sub-namespace creation | `clone3` | **BLOCKED** (static deny) | N/A | N/A | neverallow | Prevents nested namespace escape |
+| Sub-namespace creation | `clone3` | **GATED** (USER_NOTIF or BPF LSM) | N/A | N/A | neverallow | clone3 with namespace flags intercepted via USER_NOTIF (or BPF argument filtering); not statically denied because clone3 without namespace flags is needed for fork/thread creation |
 | Keyring manipulation | `add_key`, `keyctl`, `request_key` | **BLOCKED** (static deny) | N/A | N/A | N/A | Agents cannot access kernel keyrings |
 | io_uring bypass | `io_uring_setup/enter/register` | **BLOCKED** (static deny) | N/A | N/A | N/A | io_uring operations bypass seccomp |
 | SysV IPC | `shmget`, `shmat`, `semget`, `msgget`, etc. | **BLOCKED** (static deny) | N/A | N/A | N/A | Prevents cross-namespace communication via shared memory, semaphores, message queues |
@@ -205,7 +205,7 @@ Syscalls are divided into two tiers to balance security and performance:
 | High-frequency, static policy | Landlock (in-kernel) | < 1 us | `open`, `read`, `write`, `stat`, `mmap` |
 | Low-frequency, dynamic policy | seccomp USER_NOTIF | ~50-100 us | `execve`, `connect`, `bind` |
 | Monitoring only | fanotify (async) | Zero agent impact | File access patterns |
-| Static deny | seccomp SECCOMP_RET_KILL_PROCESS | Zero (process killed) | 57 escape-vector syscalls (58 on x86_64): `ptrace`, `mount`, `setns`, `pivot_root`, `memfd_create`, `io_uring_*`, `shmget`, `shmat`, `semget`, `msgget`, etc. |
+| Static deny | seccomp SECCOMP_RET_KILL_PROCESS | Zero (process killed) | 74 escape-vector syscalls on x86_64 (73 on aarch64): `ptrace`, `mount`, `setns`, `pivot_root`, `memfd_create`, `io_uring_*`, `shmget`, `shmat`, `semget`, `msgget`, `sethostname`, etc. |
 
 ### TOCTOU Protection for seccomp USER_NOTIF
 
@@ -217,7 +217,7 @@ seccomp `USER_NOTIF` is inherently susceptible to TOCTOU (time-of-check-time-of-
 
 3. **cgroup.freeze for commit**: Before reading the OverlayFS upper layer for diff generation, `puzzled` freezes the agent's cgroup. This prevents the agent from modifying files between the diff read and the governance evaluation. The freeze is atomic from the kernel's perspective.
 
-4. **Immutable file descriptors**: For `connect` and `bind`, the socket file descriptor is validated via `/proc/<pid>/fdinfo/<fd>`.
+4. **`/proc/<pid>/mem` sockaddr reading**: For `connect` and `bind`, `puzzled` reads the `sockaddr` argument from the agent's memory via `/proc/<pid>/mem`. **Known limitation**: in a multi-threaded agent, another thread can modify the `sockaddr` buffer between the read and the kernel's syscall resumption (TOCTOU window). Defense-in-depth relies on Landlock network ACL (port-level, ABI v4+) and nftables rules in the network namespace as the actual enforcement layers.
 
 ---
 
@@ -370,9 +370,11 @@ PuzzlePod maintains a per-UID graduated trust score that reflects an agent's beh
 
 | Event | Score Change | Rationale |
 |---|---|---|
-| Successful commit | +10 | Agent demonstrated safe, policy-compliant behavior |
-| Governance rejection | -20 | Agent attempted something the policy blocked |
-| Manual rollback | -15 | Operator intervened to undo agent work |
+| Successful commit (`commit_approved`) | +2 (capped at +10/day) | Agent demonstrated safe, policy-compliant behavior |
+| Policy violation (`policy_violation`) | -10 | Agent triggered a policy rule |
+| Governance rejection (`commit_rejected`) | -5 | Agent's changeset was rejected by governance |
+| Containment violation (`containment_violation`) | -25 | Agent attempted to breach containment boundary |
+| Trust decay (`trust_decay`) | -1 per day | Gradual decay ensures agents must maintain clean behavior |
 | Admin override | Set to N | Operator manually adjusts based on external review |
 
 ### Security Considerations
@@ -427,9 +429,9 @@ puzzled is the operator's daemon, not the agent's. It could theoretically issue 
 
 ---
 
-## IMA Manifest Signing
+## Ed25519 Changeset Signing
 
-Every committed changeset is signed using the Linux Integrity Measurement Architecture (IMA).
+Every committed changeset is signed with Ed25519 using the `ed25519_dalek` crate in userspace.
 
 ### Signing Process
 
@@ -441,9 +443,9 @@ Every committed changeset is signed using the Linux Integrity Measurement Archit
    - Profile name
    - Policy evaluation result
 
-2. The manifest is signed using the IMA key stored in the kernel keyring.
+2. The manifest is signed with the Ed25519 private key at `signing_key_path` (configurable in `puzzled.conf`).
 
-3. The signed manifest is stored alongside the audit event.
+3. The signed manifest is self-verified before being stored alongside the audit event.
 
 ### Verification
 
@@ -457,9 +459,10 @@ puzzlectl audit export --format signed-manifest --branch <branch-id>
 
 ### Key Management
 
-- The IMA signing key is stored in the kernel's `.ima` keyring
-- Key rotation is managed via standard IMA key management procedures
-- The signing key is accessible only to `puzzled` (via SELinux policy)
+- The Ed25519 signing key is stored on the filesystem at `signing_key_path` (default: `/etc/puzzled/signing-key.pem`)
+- Key rotation is supported via `check_key_rotation()` with CSPRNG generation via `getrandom`
+- The signing key is accessible only to `puzzled` (via SELinux policy and filesystem permissions)
+- **Phase D goal**: TPM 2.0 hardware-anchored signing with non-exportable keys, and kernel IMA keyring integration for hardware-backed trust anchors
 
 ---
 
@@ -511,6 +514,8 @@ DNS queries are restricted to configured resolvers to prevent DNS exfiltration:
 
 - Agent's `/etc/resolv.conf` points to a controlled resolver
 - nftables blocks DNS (UDP/TCP port 53) to any other destination
+
+**Known limitation**: restricting DNS to a controlled resolver prevents direct DNS to attacker-controlled servers, but does not prevent DNS tunneling via TXT queries to attacker-controlled domains when the resolver performs recursive resolution. This is a residual risk mitigated by domain allowlisting at the HTTP proxy layer (which does not cover raw DNS queries).
 
 ---
 
@@ -615,7 +620,7 @@ Audit events follow the system's audit log retention policy (configured in `/etc
 2. On startup, `puzzled` scans `/var/lib/puzzled/branches/` to re-discover active branches
 3. WAL journal is replayed: incomplete commits are rolled back (fail-closed)
 4. Agent processes continue running with all kernel-enforced containment intact (Landlock, seccomp, namespaces, cgroups, SELinux)
-5. seccomp USER_NOTIF fds are re-opened for active agents; during the gap, USER_NOTIF returns `ENOSYS` (fail-closed)
+5. seccomp USER_NOTIF fds are NOT recoverable for pre-existing agents after daemon restart. The kernel closes the notification fd when puzzled exits, and surviving agents receive ENOSYS for all gated syscalls permanently. puzzled automatically terminates these agents during recovery. New agents created after restart receive fresh notification fds.
 6. Verify recovery: `puzzlectl agent list` and `puzzlectl branch list` to confirm state
 
 ### Policy Violation at Commit
@@ -651,7 +656,7 @@ Audit events follow the system's audit log retention policy (configured in `/etc
 
 - [ ] Running as root with minimal capabilities (only `CAP_SYS_ADMIN`, `CAP_NET_ADMIN`, `CAP_DAC_OVERRIDE`)
 - [ ] D-Bus system bus policy restricts `org.lobstertrap.PuzzlePod1.Manager` to authorized users/groups
-- [ ] puzzled seccomp profile loaded (57 blocked escape-vector syscalls + 4 USER_NOTIF-gated; 58 on x86_64)
+- [ ] puzzled seccomp profile loaded (74 blocked escape-vector syscalls + 4 USER_NOTIF-gated on x86_64; 73 + 4 on aarch64)
 - [ ] WAL directory on persistent storage (not tmpfs)
 - [ ] Audit logging enabled and forwarded to central log aggregator
 - [ ] IMA signing key configured in kernel keyring for changeset integrity
@@ -718,3 +723,5 @@ After all defense layers are fully deployed, the following risks are explicitly 
 | **Human approval fatigue** | Users rubber-stamp commits without reading them. | Partially addressed by automated OPA/Rego rules that enforce policy regardless of human approval. |
 | **Governance daemon compromise** | If `puzzled` itself is compromised (kernel exploit, supply chain attack), all containment is bypassed. | Daemon is hardened (seccomp, SELinux, minimal capabilities) but is still a single point of trust. |
 | **Legitimate access abuse** | Agent uses data within its access scope in unintended ways (e.g., summarizing confidential code in a public commit message). | Cannot be enforced at the OS level. Requires application-level controls. |
+| **seccomp USER_NOTIF sockaddr TOCTOU** | In a multi-threaded agent, the `sockaddr` argument to `connect`/`bind` can be modified between the seccomp notification read and syscall resumption. The `SECCOMP_IOCTL_NOTIF_ID_VALID` check only verifies the thread is alive, not that memory is unchanged. | Landlock network ACL (port-level) and per-agent nftables rules are the primary network enforcement layers. The seccomp USER_NOTIF check is best-effort for connect/bind domain validation. |
+| **DNS tunneling via recursive resolver** | An agent in Gated mode can exfiltrate data by encoding it in DNS queries (e.g., TXT record lookups for `<encoded-data>.attacker.com`). The controlled resolver forwards these to external DNS, bypassing HTTP-level domain allowlists. | Domain allowlisting operates at the HTTP proxy layer and does not filter raw DNS queries. Mitigation requires a DNS filtering resolver that restricts resolution to allowed domains only. |

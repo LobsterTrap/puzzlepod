@@ -6,6 +6,142 @@ use zeroize::Zeroizing;
 
 const DEFAULT_CONFIG_PATH: &str = "/etc/puzzled/puzzled.conf";
 
+// ---------------------------------------------------------------------------
+// Configuration enums — replace stringly-typed fields with type-safe variants.
+// Serde `rename_all` ensures backward-compatible YAML/JSON deserialization.
+// ---------------------------------------------------------------------------
+
+/// D-Bus bus type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BusType {
+    System,
+    Session,
+}
+
+impl std::fmt::Display for BusType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::System => f.write_str("system"),
+            Self::Session => f.write_str("session"),
+        }
+    }
+}
+
+/// Filesystem type for branch storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FsType {
+    Xfs,
+    Ext4,
+    Btrfs,
+}
+
+impl std::fmt::Display for FsType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Xfs => f.write_str("xfs"),
+            Self::Ext4 => f.write_str("ext4"),
+            Self::Btrfs => f.write_str("btrfs"),
+        }
+    }
+}
+
+/// Log verbosity level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl std::fmt::Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Trace => f.write_str("trace"),
+            Self::Debug => f.write_str("debug"),
+            Self::Info => f.write_str("info"),
+            Self::Warn => f.write_str("warn"),
+            Self::Error => f.write_str("error"),
+        }
+    }
+}
+
+/// Default action on unclean agent exit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DefaultAction {
+    /// Automatically roll back branch changes.
+    Rollback,
+    /// Hold branch in GovernanceReview state for human decision.
+    Hold,
+}
+
+impl std::fmt::Display for DefaultAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rollback => f.write_str("rollback"),
+            Self::Hold => f.write_str("hold"),
+        }
+    }
+}
+
+/// Log output target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogTarget {
+    Journal,
+    Stderr,
+}
+
+impl std::fmt::Display for LogTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Journal => f.write_str("journal"),
+            Self::Stderr => f.write_str("stderr"),
+        }
+    }
+}
+
+/// Policy engine type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PolicyEngineType {
+    Opa,
+}
+
+impl std::fmt::Display for PolicyEngineType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Opa => f.write_str("opa"),
+        }
+    }
+}
+
+/// Network proxy mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkDefaultMode {
+    Blocked,
+    Gated,
+    Monitored,
+    Unrestricted,
+}
+
+impl std::fmt::Display for NetworkDefaultMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Blocked => f.write_str("blocked"),
+            Self::Gated => f.write_str("gated"),
+            Self::Monitored => f.write_str("monitored"),
+            Self::Unrestricted => f.write_str("unrestricted"),
+        }
+    }
+}
+
 /// Returns `true` when puzzled is running as a non-root user.
 /// Used to select user-mode config paths and defaults.
 #[cfg(unix)]
@@ -71,17 +207,17 @@ pub struct DaemonConfig {
     #[serde(default = "default_max_branches")]
     pub max_branches: u32,
 
-    /// D-Bus bus type ("system" or "session").
+    /// D-Bus bus type.
     #[serde(default = "default_bus_type")]
-    pub bus_type: String,
+    pub bus_type: BusType,
 
     /// Filesystem type for branch storage (xfs recommended for project quotas).
     #[serde(default = "default_fs_type")]
-    pub fs_type: String,
+    pub fs_type: FsType,
 
-    /// Log level (trace, debug, info, warn, error).
+    /// Log level.
     #[serde(default = "default_log_level")]
-    pub log_level: String,
+    pub log_level: LogLevel,
 
     /// Watchdog timeout in seconds (0 = disabled).
     #[serde(default = "default_watchdog_timeout")]
@@ -149,9 +285,9 @@ pub struct DaemonConfig {
     #[serde(default = "default_default_profile")]
     pub default_profile: String,
 
-    /// M-cfg2: Default action on unclean agent exit ("rollback" or "hold").
+    /// M-cfg2: Default action on unclean agent exit.
     #[serde(default = "default_default_action")]
-    pub default_action: String,
+    pub default_action: DefaultAction,
 
     /// M-br2: Runtime directory for ephemeral state (state.json).
     /// Should be on tmpfs (/run) rather than persistent storage.
@@ -199,17 +335,13 @@ pub struct DaemonConfig {
     #[serde(default = "default_pid_file")]
     pub pid_file: PathBuf,
 
-    /// M8: Log target ("journal" or "stderr").
+    /// M8: Log target.
     #[serde(default = "default_log_target")]
-    pub log_target: String,
+    pub log_target: LogTarget,
 
-    /// M8: Policy engine type ("opa").
+    /// M8: Policy engine type.
     #[serde(default = "default_policy_engine")]
-    pub policy_engine: String,
-
-    /// M8: Enable hot-reload of policies and profiles.
-    #[serde(default = "default_true")]
-    pub hot_reload: bool,
+    pub policy_engine: PolicyEngineType,
 
     /// M8: Heartbeat interval in seconds for watchdog pings.
     #[serde(default = "default_heartbeat_interval")]
@@ -275,9 +407,9 @@ pub struct NetworkSectionConfig {
     /// Maximum request/response body size in MB.
     #[serde(default = "default_max_body_size_mb")]
     pub max_body_size_mb: u64,
-    /// M8: Default network mode ("gated", "blocked", "unrestricted", "monitored").
+    /// M8: Default network mode.
     #[serde(default = "default_network_mode")]
-    pub default_mode: String,
+    pub default_mode: NetworkDefaultMode,
     /// M8: Maximum pending network operations per branch.
     #[serde(default = "default_pending_ops_max")]
     pub pending_ops_max_per_branch: u32,
@@ -726,10 +858,10 @@ pub fn default_dangerous_wildcards() -> Vec<String> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CredentialStoreDaemonConfig {
     /// Whether mlock() failure is fatal (default: true).
-    #[serde(default = "default_true_cfg")]
+    #[serde(default = "default_true")]
     pub mlock_required: bool,
     /// Enable kernel keyring caching for passphrase-derived keys (default: true).
-    #[serde(default = "default_true_cfg")]
+    #[serde(default = "default_true")]
     pub keyring_cache_enabled: bool,
     /// Kernel keyring cache timeout in seconds (default: 86400 = 24 hours).
     #[serde(default = "default_keyring_timeout")]
@@ -746,9 +878,6 @@ impl Default for CredentialStoreDaemonConfig {
     }
 }
 
-fn default_true_cfg() -> bool {
-    true
-}
 fn default_keyring_timeout() -> u64 {
     86400
 }
@@ -1025,16 +1154,16 @@ fn default_max_branches() -> u32 {
     64
 }
 
-fn default_bus_type() -> String {
-    "system".to_string()
+fn default_bus_type() -> BusType {
+    BusType::System
 }
 
-fn default_fs_type() -> String {
-    "xfs".to_string()
+fn default_fs_type() -> FsType {
+    FsType::Xfs
 }
 
-fn default_log_level() -> String {
-    "info".to_string()
+fn default_log_level() -> LogLevel {
+    LogLevel::Info
 }
 
 fn default_watchdog_timeout() -> u64 {
@@ -1124,8 +1253,8 @@ fn default_default_profile() -> String {
     "restricted".to_string()
 }
 
-fn default_default_action() -> String {
-    "rollback".to_string()
+fn default_default_action() -> DefaultAction {
+    DefaultAction::Rollback
 }
 
 fn default_runtime_dir() -> PathBuf {
@@ -1148,12 +1277,12 @@ fn default_pid_file() -> PathBuf {
     PathBuf::from("/run/puzzled/puzzled.pid")
 }
 
-fn default_log_target() -> String {
-    "journal".to_string()
+fn default_log_target() -> LogTarget {
+    LogTarget::Journal
 }
 
-fn default_policy_engine() -> String {
-    "opa".to_string()
+fn default_policy_engine() -> PolicyEngineType {
+    PolicyEngineType::Opa
 }
 
 fn default_heartbeat_interval() -> u32 {
@@ -1164,8 +1293,8 @@ fn default_max_restart_attempts() -> u32 {
     3
 }
 
-fn default_network_mode() -> String {
-    "gated".to_string()
+fn default_network_mode() -> NetworkDefaultMode {
+    NetworkDefaultMode::Gated
 }
 
 fn default_pending_ops_max() -> u32 {
@@ -1216,7 +1345,6 @@ impl Default for DaemonConfig {
             pid_file: default_pid_file(),
             log_target: default_log_target(),
             policy_engine: default_policy_engine(),
-            hot_reload: true,
             heartbeat_interval_seconds: default_heartbeat_interval(),
             max_restart_attempts: default_max_restart_attempts(),
             enable_changeset_signing: true,
@@ -1239,38 +1367,8 @@ impl DaemonConfig {
             );
         }
 
-        match self.log_level.as_str() {
-            "trace" | "debug" | "info" | "warn" | "error" => {}
-            other => anyhow::bail!(
-                "invalid log_level '{}': must be trace|debug|info|warn|error",
-                other
-            ),
-        }
-
-        match self.bus_type.as_str() {
-            "system" | "session" => {}
-            other => anyhow::bail!("invalid bus_type '{}': must be system|session", other),
-        }
-
-        match self.fs_type.as_str() {
-            "xfs" | "ext4" | "btrfs" => {}
-            other => anyhow::bail!("invalid fs_type '{}': must be xfs|ext4|btrfs", other),
-        }
-
-        // U1: Validate network.default_mode
-        match self.network.default_mode.as_str() {
-            "blocked" | "gated" | "monitored" | "unrestricted" => {}
-            other => anyhow::bail!(
-                "invalid network.default_mode '{}': must be blocked|gated|monitored|unrestricted",
-                other
-            ),
-        }
-
-        // U2: Validate policy_engine
-        match self.policy_engine.as_str() {
-            "opa" => {}
-            other => anyhow::bail!("invalid policy_engine '{}': must be opa", other),
-        }
+        // log_level, bus_type, fs_type, network.default_mode, and policy_engine
+        // are now enums — serde rejects invalid values at parse time.
 
         if self.watchdog_timeout_secs == 0 {
             tracing::warn!("watchdog_timeout_secs is 0 — watchdog disabled");
@@ -1315,11 +1413,7 @@ impl DaemonConfig {
             );
         }
 
-        // M-cfg2/m9: Validate default_action — "hold" maps to GovernanceReview state
-        match self.default_action.as_str() {
-            "rollback" | "hold" => {}
-            other => anyhow::bail!("invalid default_action '{}': must be rollback|hold", other),
-        }
+        // default_action is now an enum — serde rejects invalid values at parse time.
 
         // M-cfg3: Validate commit_timeout_seconds
         if self.commit_timeout_seconds == 0 || self.commit_timeout_seconds > 3600 {
@@ -1419,8 +1513,8 @@ impl DaemonConfig {
         if let Ok(configured_range) = self.credential_proxy.parse_port_range() {
             let system_default = 18000u16..=18499u16;
             let user_default = 18500u16..=18999u16;
-            match self.bus_type.as_str() {
-                "session" => {
+            match self.bus_type {
+                BusType::Session => {
                     if ranges_overlap(&configured_range, &system_default) {
                         anyhow::bail!(
                             "credential_proxy.port_range '{}' overlaps system instance default \
@@ -1430,7 +1524,7 @@ impl DaemonConfig {
                         );
                     }
                 }
-                "system" => {
+                BusType::System => {
                     if ranges_overlap(&configured_range, &user_default) {
                         anyhow::bail!(
                             "credential_proxy.port_range '{}' overlaps user instance default \
@@ -1440,7 +1534,6 @@ impl DaemonConfig {
                         );
                     }
                 }
-                _ => {} // bus_type already validated above
             }
         }
 
@@ -1520,8 +1613,8 @@ impl DaemonConfig {
             max_branches: 16,
             default_storage_quota_mb: 512,
             default_inode_quota: 5000,
-            bus_type: "session".to_string(),
-            fs_type: "ext4".to_string(),
+            bus_type: BusType::Session,
+            fs_type: FsType::Ext4,
             runtime_dir: puzzled_runtime.clone(),
             socket_path: puzzled_runtime.join("puzzled.sock"),
             pid_file: puzzled_runtime.join("puzzled.pid"),
@@ -1570,7 +1663,7 @@ impl DaemonConfig {
                 port_range: "18500-18999".to_string(),
                 ..Default::default()
             },
-            log_target: "stderr".to_string(),
+            log_target: LogTarget::Stderr,
             ..Default::default()
         };
 
@@ -1643,8 +1736,8 @@ impl DaemonConfig {
 /// Fallback: If neither path is writable (e.g., read-only root in containers), falls back to
 /// `/etc/machine-id` with a Critical audit event — this is deterministic and NOT cryptographically
 /// suitable for production use.
-pub fn load_instance_secret(bus_type: &str) -> Result<Zeroizing<[u8; 32]>> {
-    let secret_path = if bus_type == "session" {
+pub fn load_instance_secret(bus_type: BusType) -> Result<Zeroizing<[u8; 32]>> {
+    let secret_path = if bus_type == BusType::Session {
         // Rootless mode
         let data_dir = dirs_instance_secret_rootless()?;
         data_dir.join("instance_secret")
@@ -1781,9 +1874,9 @@ mod tests {
             PathBuf::from("/var/lib/puzzled/branches")
         );
         assert_eq!(config.max_branches, 64);
-        assert_eq!(config.bus_type, "system");
-        assert_eq!(config.fs_type, "xfs");
-        assert_eq!(config.log_level, "info");
+        assert_eq!(config.bus_type, BusType::System);
+        assert_eq!(config.fs_type, FsType::Xfs);
+        assert_eq!(config.log_level, LogLevel::Info);
         assert_eq!(config.watchdog_timeout_secs, 30);
         assert_eq!(
             config.bpf_obj_path,
@@ -1813,9 +1906,9 @@ credential_proxy:
         assert_eq!(config.profiles_dir, PathBuf::from("/tmp/profiles"));
         assert_eq!(config.policies_dir, PathBuf::from("/tmp/policies"));
         assert_eq!(config.max_branches, 16);
-        assert_eq!(config.bus_type, "session");
-        assert_eq!(config.fs_type, "ext4");
-        assert_eq!(config.log_level, "debug");
+        assert_eq!(config.bus_type, BusType::Session);
+        assert_eq!(config.fs_type, FsType::Ext4);
+        assert_eq!(config.log_level, LogLevel::Debug);
         assert_eq!(config.watchdog_timeout_secs, 60);
     }
 
@@ -1831,14 +1924,14 @@ log_level: warn
         let config = DaemonConfig::load(tmpfile.path()).unwrap();
         // Explicitly set fields
         assert_eq!(config.max_branches, 8);
-        assert_eq!(config.log_level, "warn");
+        assert_eq!(config.log_level, LogLevel::Warn);
         // Default-filled fields
         assert_eq!(
             config.branch_root,
             PathBuf::from("/var/lib/puzzled/branches")
         );
-        assert_eq!(config.bus_type, "system");
-        assert_eq!(config.fs_type, "xfs");
+        assert_eq!(config.bus_type, BusType::System);
+        assert_eq!(config.fs_type, FsType::Xfs);
         assert_eq!(config.watchdog_timeout_secs, 30);
     }
 
@@ -1867,59 +1960,74 @@ log_level: warn
     fn test_config_validates_log_level() {
         let mut config = DaemonConfig::default();
 
-        for valid in &["trace", "debug", "info", "warn", "error"] {
-            config.log_level = valid.to_string();
+        for valid in &[
+            LogLevel::Trace,
+            LogLevel::Debug,
+            LogLevel::Info,
+            LogLevel::Warn,
+            LogLevel::Error,
+        ] {
+            config.log_level = *valid;
             assert!(
                 config.validate().is_ok(),
-                "log_level '{}' should be valid",
+                "log_level '{:?}' should be valid",
                 valid
             );
         }
 
-        config.log_level = "verbose".to_string();
-        assert!(config.validate().is_err());
+        // Invalid string values are now rejected at serde parse time
+        let result = serde_yaml::from_str::<DaemonConfig>("log_level: verbose");
+        assert!(
+            result.is_err(),
+            "serde should reject 'verbose' as log_level"
+        );
 
-        config.log_level = "WARN".to_string();
-        assert!(config.validate().is_err(), "case-sensitive validation");
+        let result = serde_yaml::from_str::<DaemonConfig>("log_level: WARN");
+        assert!(
+            result.is_err(),
+            "serde should reject 'WARN' (case-sensitive)"
+        );
     }
 
     #[test]
     fn test_config_validates_bus_type() {
         let config = DaemonConfig {
-            bus_type: "system".to_string(),
+            bus_type: BusType::System,
             ..Default::default()
         };
         assert!(config.validate().is_ok());
 
         let mut config = config;
 
-        config.bus_type = "session".to_string();
+        config.bus_type = BusType::Session;
         // H-2: session instance needs non-overlapping port range
         config.credential_proxy.port_range = "18500-18999".to_string();
         assert!(config.validate().is_ok());
 
-        config.bus_type = "peer".to_string();
-        assert!(config.validate().is_err());
+        // Invalid string values are now rejected at serde parse time
+        let result = serde_yaml::from_str::<DaemonConfig>("bus_type: peer");
+        assert!(result.is_err(), "serde should reject 'peer' as bus_type");
     }
 
     #[test]
     fn test_config_validates_fs_type() {
         let mut config = DaemonConfig::default();
 
-        for valid in &["xfs", "ext4", "btrfs"] {
-            config.fs_type = valid.to_string();
+        for valid in &[FsType::Xfs, FsType::Ext4, FsType::Btrfs] {
+            config.fs_type = *valid;
             assert!(
                 config.validate().is_ok(),
-                "fs_type '{}' should be valid",
+                "fs_type '{:?}' should be valid",
                 valid
             );
         }
 
-        config.fs_type = "ntfs".to_string();
-        assert!(config.validate().is_err());
+        // Invalid string values are now rejected at serde parse time
+        let result = serde_yaml::from_str::<DaemonConfig>("fs_type: ntfs");
+        assert!(result.is_err(), "serde should reject 'ntfs' as fs_type");
 
-        config.fs_type = "zfs".to_string();
-        assert!(config.validate().is_err());
+        let result = serde_yaml::from_str::<DaemonConfig>("fs_type: zfs");
+        assert!(result.is_err(), "serde should reject 'zfs' as fs_type");
     }
 
     #[test]
@@ -2020,29 +2128,23 @@ log_level: warn
     #[test]
     fn test_config_rejects_invalid_default_action() {
         // m9: default_action must be "rollback" or "hold" (not "commit").
-        let config = DaemonConfig {
-            default_action: "ignore".to_string(),
-            ..Default::default()
-        };
-        let result = config.validate();
-        assert!(result.is_err());
-        let msg = result.unwrap_err().to_string();
+        // Invalid string values are now rejected at serde parse time.
+        let result = serde_yaml::from_str::<DaemonConfig>("default_action: ignore");
         assert!(
-            msg.contains("default_action"),
-            "error should mention default_action: {}",
-            msg
+            result.is_err(),
+            "serde should reject 'ignore' as default_action"
         );
 
         // "commit" is no longer valid — must be "hold" or "rollback"
-        let config = DaemonConfig {
-            default_action: "commit".to_string(),
-            ..Default::default()
-        };
-        assert!(config.validate().is_err());
+        let result = serde_yaml::from_str::<DaemonConfig>("default_action: commit");
+        assert!(
+            result.is_err(),
+            "serde should reject 'commit' as default_action"
+        );
 
         // "hold" is valid
         let config = DaemonConfig {
-            default_action: "hold".to_string(),
+            default_action: DefaultAction::Hold,
             ..Default::default()
         };
         assert!(config.validate().is_ok());
@@ -2134,7 +2236,7 @@ log_level: warn
     #[test]
     fn test_default_for_user_has_session_bus() {
         let config = DaemonConfig::default_for_user().unwrap();
-        assert_eq!(config.bus_type, "session");
+        assert_eq!(config.bus_type, BusType::Session);
     }
 
     #[test]
@@ -2195,7 +2297,8 @@ log_level: warn
     fn test_default_for_user_fs_type() {
         let config = DaemonConfig::default_for_user().unwrap();
         assert_eq!(
-            config.fs_type, "ext4",
+            config.fs_type,
+            FsType::Ext4,
             "user mode should default to ext4 (no XFS quotas)"
         );
     }
@@ -2204,7 +2307,8 @@ log_level: warn
     fn test_default_for_user_log_target() {
         let config = DaemonConfig::default_for_user().unwrap();
         assert_eq!(
-            config.log_target, "stderr",
+            config.log_target,
+            LogTarget::Stderr,
             "user mode should log to stderr"
         );
     }
@@ -2291,11 +2395,13 @@ max_branches: 0
 
         let config = DaemonConfig::load_or_default().expect("load_or_default should succeed");
         assert_eq!(
-            config.bus_type, "session",
+            config.bus_type,
+            BusType::Session,
             "non-root without config should get session bus"
         );
         assert_eq!(
-            config.fs_type, "ext4",
+            config.fs_type,
+            FsType::Ext4,
             "non-root without config should get ext4"
         );
         assert_eq!(
@@ -2355,8 +2461,8 @@ max_branches: 0
         // We can't simulate root mode in a unit test, but we can verify
         // that DaemonConfig::default() gives system defaults.
         let config = DaemonConfig::default();
-        assert_eq!(config.bus_type, "system");
-        assert_eq!(config.fs_type, "xfs");
+        assert_eq!(config.bus_type, BusType::System);
+        assert_eq!(config.fs_type, FsType::Xfs);
         assert_eq!(config.max_branches, 64);
     }
 
@@ -2484,8 +2590,10 @@ max_branches: 0
 
     #[test]
     fn test_h2_session_rejects_system_range_overlap() {
-        let mut config = DaemonConfig::default();
-        config.bus_type = "session".to_string();
+        let mut config = DaemonConfig {
+            bus_type: BusType::Session,
+            ..Default::default()
+        };
         // Overlaps with system default 18000-18499
         config.credential_proxy.port_range = "18000-18499".to_string();
         let result = config.validate();
@@ -2498,8 +2606,10 @@ max_branches: 0
 
     #[test]
     fn test_h2_system_rejects_user_range_overlap() {
-        let mut config = DaemonConfig::default();
-        config.bus_type = "system".to_string();
+        let mut config = DaemonConfig {
+            bus_type: BusType::System,
+            ..Default::default()
+        };
         // Overlaps with user default 18500-18999
         config.credential_proxy.port_range = "18500-18999".to_string();
         let result = config.validate();
@@ -2513,16 +2623,20 @@ max_branches: 0
     #[test]
     fn test_h2_default_ranges_no_overlap() {
         // System default (18000-18499) should pass for system bus
-        let mut config = DaemonConfig::default();
-        config.bus_type = "system".to_string();
+        let config = DaemonConfig {
+            bus_type: BusType::System,
+            ..Default::default()
+        };
         assert!(
             config.validate().is_ok(),
             "system default range should not overlap"
         );
 
         // User default equivalent (18500-18999) should pass for session bus
-        let mut config = DaemonConfig::default();
-        config.bus_type = "session".to_string();
+        let mut config = DaemonConfig {
+            bus_type: BusType::Session,
+            ..Default::default()
+        };
         config.credential_proxy.port_range = "18500-18999".to_string();
         assert!(
             config.validate().is_ok(),

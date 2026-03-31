@@ -36,6 +36,7 @@ fn seccomp_allows_landlock_syscalls() {
         Path::new("/run/puzzled/seccomp.sock"),
         true,
         false,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -66,6 +67,7 @@ fn seccomp_deny_list_does_not_block_landlock() {
         Path::new("/run/puzzled/seccomp.sock"),
         true,
         false,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -96,6 +98,7 @@ fn seccomp_notify_includes_governance_syscalls() {
         Path::new("/run/puzzled/seccomp.sock"),
         true,
         false,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -123,6 +126,7 @@ fn seccomp_notify_has_listener_path() {
         Path::new(socket),
         true,
         false,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -142,6 +146,7 @@ fn seccomp_listener_metadata_contains_branch_id() {
         Path::new("/run/puzzled/seccomp.sock"),
         true,
         false,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -166,6 +171,7 @@ fn seccomp_static_only_has_no_listener() {
         Path::new("/run/puzzled/seccomp.sock"),
         false,
         false,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -195,7 +201,7 @@ fn landlock_rules_match_init_schema() {
     let json = serde_json::to_string_pretty(&rules).expect("serialization must succeed");
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("must parse as valid JSON");
 
-    assert_eq!(parsed["abi"].as_str(), Some("V4"));
+    assert_eq!(parsed["abi"].as_str(), Some("V5"));
     assert!(parsed["read"].is_array());
     assert!(parsed["write"].is_array());
     assert!(parsed["exec"].is_array());
@@ -310,7 +316,7 @@ fn landlock_rules_restricted_profile_minimal() {
 /// All ABI versions must be representable in the generated JSON.
 #[test]
 fn landlock_rules_abi_versions_parseable() {
-    for abi in &["V1", "V2", "V3", "V4", "V5"] {
+    for abi in &["V1", "V2", "V3", "V4", "V5", "V6"] {
         let json =
             format!(r#"{{"abi": "{abi}", "read": ["/usr"], "write": ["/tmp"], "exec": []}}"#);
         let parsed: serde_json::Value = serde_json::from_str(&json)
@@ -416,6 +422,7 @@ fn seccomp_profile_write_read_roundtrip() {
         Path::new("/run/puzzled/seccomp.sock"),
         true,
         true,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -426,6 +433,7 @@ fn seccomp_profile_write_read_roundtrip() {
         serde_json::from_str(&contents).unwrap();
 
     assert_eq!(deserialized.default_action, profile.default_action);
+    assert_eq!(deserialized.default_errno_ret, profile.default_errno_ret);
     assert_eq!(deserialized.listener_path, profile.listener_path);
     assert_eq!(deserialized.listener_metadata, profile.listener_metadata);
     assert_eq!(deserialized.architectures, profile.architectures);
@@ -447,7 +455,7 @@ fn landlock_rules_write_read_roundtrip() {
     let contents = std::fs::read_to_string(&output_path).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
 
-    assert_eq!(parsed["abi"].as_str(), Some("V4"));
+    assert_eq!(parsed["abi"].as_str(), Some("V5"));
     let write_paths: Vec<&str> = parsed["write"]
         .as_array()
         .unwrap()
@@ -471,6 +479,7 @@ fn seccomp_denies_critical_escape_vectors() {
         Path::new("/run/puzzled/seccomp.sock"),
         true,
         false,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -513,6 +522,7 @@ fn seccomp_blocks_raw_sockets() {
         Path::new("/run/puzzled/seccomp.sock"),
         true,
         false,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -545,6 +555,7 @@ fn seccomp_clone_guard_when_enabled() {
         Path::new("/run/puzzled/seccomp.sock"),
         true,
         true,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -565,6 +576,7 @@ fn seccomp_no_clone_guard_when_disabled() {
         Path::new("/run/puzzled/seccomp.sock"),
         true,
         false,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -590,6 +602,7 @@ fn seccomp_profile_covers_target_architectures() {
         Path::new("/run/puzzled/seccomp.sock"),
         true,
         false,
+        SeccompMode::Permissive,
     )
     .unwrap();
 
@@ -686,6 +699,7 @@ fn full_podman_native_artifact_generation() {
         Path::new("/run/puzzled/seccomp-notify.sock"),
         true,
         false,
+        SeccompMode::Permissive,
     )
     .unwrap();
     let seccomp_path = branch_dir.join("seccomp.json");

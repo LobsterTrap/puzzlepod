@@ -214,21 +214,26 @@ impl ProxyServer {
 
         let transparent_mode = self.config.transparent_mode;
 
+        // Construct shared context once — cloned per connection.
+        let base_ctx = handler::ProxyRequestContext {
+            journal: self.journal.clone(),
+            branch_id: self.config.branch_id.clone(),
+            connection_semaphore: self.connection_semaphore.clone(),
+            dlp_engine: self.config.dlp_engine.clone(),
+            max_inspection_body_size: self.config.max_inspection_body_size,
+            oversized_body_action: self.config.oversized_body_action,
+            quarantine_sender: self.config.quarantine_sender.clone(),
+            phantom_token_manager: self.config.phantom_token_manager.clone(),
+            agent_profile: self.config.agent_profile.clone(),
+            audit_sender: self.config.audit_sender.clone(),
+            credential_mode: self.config.credential_mode,
+        };
+
         loop {
             let (stream, peer_addr) = listener.accept().await?;
 
-            let journal = self.journal.clone();
-            let branch_id = self.config.branch_id.clone();
+            let ctx = base_ctx.clone();
             let ca = self.config.ca.clone();
-            let connection_semaphore = self.connection_semaphore.clone();
-            let dlp_engine = self.config.dlp_engine.clone();
-            let max_inspection_body_size = self.config.max_inspection_body_size;
-            let oversized_body_action = self.config.oversized_body_action;
-            let quarantine_sender = self.config.quarantine_sender.clone();
-            let phantom_token_manager = self.config.phantom_token_manager.clone();
-            let agent_profile = self.config.agent_profile.clone();
-            let audit_sender = self.config.audit_sender.clone();
-            let credential_mode = self.config.credential_mode;
 
             if transparent_mode {
                 // §3.4 G7: Transparent mode — handle DNAT'd TLS connections.
@@ -245,21 +250,7 @@ impl ProxyServer {
                 };
 
                 tokio::spawn(async move {
-                    handler::handle_transparent_connection(
-                        stream,
-                        branch_id,
-                        ca,
-                        journal,
-                        dlp_engine,
-                        max_inspection_body_size,
-                        oversized_body_action,
-                        quarantine_sender,
-                        audit_sender,
-                        phantom_token_manager,
-                        agent_profile,
-                        credential_mode,
-                    )
-                    .await;
+                    handler::handle_transparent_connection(stream, ca, ctx).await;
                 });
             } else {
                 // Explicit proxy mode — standard HTTP/1.1 with CONNECT tunneling.
@@ -277,18 +268,10 @@ impl ProxyServer {
                         let write_domains = write_allowed_domains.clone();
                         let denied = denied_domains.clone();
                         let mode = mode.clone();
-                        let journal = journal.clone();
-                        let branch_id = branch_id.clone();
+                        let ctx = ctx.clone();
                         let ca = ca.clone();
-                        let semaphore = connection_semaphore.clone();
-                        let dlp = dlp_engine.clone();
-                        let quarantine_tx = quarantine_sender.clone();
-                        let ptm = phantom_token_manager.clone();
-                        let profile = agent_profile.clone();
                         let geo_db = geo_database.clone();
                         let data_res = data_residency.clone();
-                        let audit_tx = audit_sender.clone();
-                        let cred_mode = credential_mode;
                         async move {
                             handler::handle_request(
                                 req,
@@ -296,20 +279,10 @@ impl ProxyServer {
                                 &write_domains,
                                 &denied,
                                 &mode,
-                                journal,
-                                &branch_id,
+                                &ctx,
                                 ca.as_deref(),
-                                semaphore,
-                                dlp,
-                                max_inspection_body_size,
-                                oversized_body_action,
-                                quarantine_tx,
-                                ptm,
-                                profile,
                                 geo_db,
                                 data_res,
-                                audit_tx,
-                                cred_mode,
                             )
                             .await
                         }

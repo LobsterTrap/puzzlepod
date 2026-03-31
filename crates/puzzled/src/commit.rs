@@ -67,8 +67,12 @@ impl<'a> CommitExecutor<'a> {
             })
             .collect();
 
-        // WAL Step 1: Log intent
-        self.wal.begin_commit(branch_id, operations.clone())?;
+        // m-2 audit fix: Use WalWriter API (single flock for entire commit)
+        // instead of per-entry WAL API. This reduces commit from O(n) file
+        // opens/locks/fsyncs to O(1) open + O(n) writes + O(1) fsync.
+        let mut writer = self
+            .wal
+            .begin_commit_writer(branch_id, operations.clone())?;
 
         // C3: Track completed operations so we can reverse them on failure.
         // If any operation fails mid-commit, we reverse all completed operations
@@ -91,9 +95,10 @@ impl<'a> CommitExecutor<'a> {
                     }
                 }
 
-                // Mark this operation complete and track it for C3 rollback
-                self.wal.mark_operation_complete(branch_id, i)?;
+                // Track completion before WAL bookkeeping so rollback covers
+                // this op even if mark_operation_complete() fails.
                 completed_ops.push(i);
+                writer.mark_operation_complete(i)?;
             }
 
             Ok(())
@@ -111,6 +116,10 @@ impl<'a> CommitExecutor<'a> {
                 error = %e,
                 "C3: WAL commit failed mid-operation, reversing completed operations"
             );
+            // Drop the writer BEFORE calling reverse_operations to release the
+            // flock. reverse_operations opens a new fd and acquires its own lock;
+            // holding both would deadlock (flock is per-fd on Linux).
+            drop(writer);
             let completed_set: std::collections::HashSet<usize> =
                 completed_ops.iter().copied().collect();
             if let Err(rev_err) =
@@ -126,8 +135,8 @@ impl<'a> CommitExecutor<'a> {
             return exec_result;
         }
 
-        // WAL Step 3: Mark commit complete
-        self.wal.mark_commit_complete(branch_id)?;
+        // WAL Step 3: Mark commit complete via writer (fsync + remove WAL)
+        writer.finish()?;
 
         Ok(())
     }
@@ -139,7 +148,7 @@ impl<'a> CommitExecutor<'a> {
         from: &Path,
         to: &Path,
         upper_dir: &Path,
-        op_index: usize,
+        _op_index: usize,
     ) -> Result<()> {
         // Symlink safety check: if the source is a symlink, verify
         // its target is within the upper directory. A symlink pointing
@@ -161,14 +170,17 @@ impl<'a> CommitExecutor<'a> {
                     let canonical_upper =
                         std::fs::canonicalize(upper_dir).unwrap_or(upper_dir.to_path_buf());
                     if !canonical_target.starts_with(&canonical_upper) {
-                        tracing::warn!(
+                        tracing::error!(
                             source = %from.display(),
                             target = %target.display(),
                             canonical_target = %canonical_target.display(),
-                            "symlink target outside upper dir — skipping"
+                            "symlink target outside upper dir — aborting commit (fail-closed)"
                         );
-                        self.wal.mark_operation_complete(branch_id, op_index)?;
-                        return Ok(());
+                        return Err(crate::error::PuzzledError::Commit(format!(
+                            "symlink escape detected: {} targets {} outside upper dir (fail-closed)",
+                            from.display(),
+                            canonical_target.display(),
+                        )));
                     }
                 }
                 Err(e) => {
@@ -462,7 +474,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_symlink_outside_upper_dir_is_skipped() {
+    fn test_symlink_outside_upper_dir_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let (wal, upper_dir, base_path) = setup_executor(dir.path());
         let executor = CommitExecutor::new(&wal);
@@ -498,12 +510,19 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
-        // Commit should succeed but skip the symlink (not copy the outside file)
+        // Commit should fail (fail-closed) when symlink escapes upper dir
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
-        assert!(result.is_ok());
-        // The target file in base should NOT exist (symlink was skipped)
+        assert!(result.is_err(), "symlink escape must cause commit failure");
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("symlink escape"),
+            "error should mention symlink escape: {err_msg}"
+        );
+        // The target file in base should NOT exist
         assert!(!base_path.join("escape.txt").exists());
     }
 
@@ -536,6 +555,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
@@ -545,7 +566,7 @@ mod tests {
     }
 
     #[test]
-    fn test_symlink_with_dotdot_traversal_is_blocked() {
+    fn test_symlink_with_dotdot_traversal_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let (wal, upper_dir, base_path) = setup_executor(dir.path());
         let executor = CommitExecutor::new(&wal);
@@ -579,11 +600,15 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
-        assert!(result.is_ok());
-        // Traversal symlink should be skipped
+        assert!(
+            result.is_err(),
+            "dotdot traversal symlink must cause commit failure"
+        );
         assert!(!base_path.join("traversal.txt").exists());
     }
 
@@ -610,6 +635,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
@@ -642,6 +669,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
@@ -676,6 +705,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
@@ -701,6 +732,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
@@ -745,6 +778,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
@@ -775,6 +810,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
@@ -807,6 +844,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             FileChange {
                 path: PathBuf::from("new.txt"),
@@ -818,6 +857,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
         ];
 
@@ -855,6 +896,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             FileChange {
                 path: PathBuf::from("missing.txt"),
@@ -866,6 +909,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
         ];
 
@@ -900,6 +945,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
@@ -940,6 +987,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             FileChange {
                 path: PathBuf::from("subdir/beta.txt"),
@@ -951,6 +1000,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
         ];
 
@@ -995,6 +1046,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
@@ -1037,6 +1090,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             // Also delete a file that doesn't exist — should be idempotent (M1)
             FileChange {
@@ -1049,6 +1104,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
         ];
 
@@ -1116,6 +1173,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             FileChange {
                 path: PathBuf::from("readonly.txt"),
@@ -1127,6 +1186,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
         ];
 
@@ -1202,6 +1263,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id2, &changes, &base_path, &upper_dir);
@@ -1272,6 +1335,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
             FileChange {
                 path: PathBuf::from("no_such_file.txt"),
@@ -1283,6 +1348,8 @@ mod tests {
                 new_mode: None,
                 timestamp: None,
                 target: None,
+                entropy: None,
+                has_base64_blocks: None,
             },
         ];
 
@@ -1344,19 +1411,21 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
         assert!(
-            result.is_ok(),
-            "commit should succeed (symlink is skipped, not error)"
+            result.is_err(),
+            "commit must fail when symlink escapes upper dir (fail-closed)"
         );
 
         // The file should NOT have been copied to base — the symlink
         // target is outside upper_dir so H6 canonicalization blocks it.
         assert!(
             !base_path.join("nested/escape.txt").exists(),
-            "path-traversal symlink should be skipped, file must not appear in base"
+            "path-traversal symlink must not appear in base"
         );
 
         // Verify the secret content was NOT leaked into base
@@ -1412,6 +1481,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);
@@ -1443,6 +1514,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let result = executor.execute(&branch_id, &changes, &base_path, &upper_dir);

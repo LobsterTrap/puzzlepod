@@ -17,6 +17,9 @@ pub struct OverlayMount {
     work_dir: PathBuf,
     merged_dir: PathBuf,
     lower_dir: PathBuf,
+    /// Tracks the fuse-overlayfs child process in rootless mode.
+    /// `None` for kernel OverlayFS (rootful) mounts.
+    fuse_child: Option<std::process::Child>,
 }
 
 impl OverlayMount {
@@ -150,6 +153,11 @@ impl OverlayMount {
         Self::validate_mount_path(work)?;
         Self::validate_mount_path(merged)?;
 
+        // Rootless mode: use fuse-overlayfs instead of kernel overlayfs
+        if nix::unistd::geteuid().as_raw() != 0 {
+            return Self::mount_fuse_overlayfs(lower, upper, work, merged, allow_exec);
+        }
+
         let options = Self::build_mount_options(lower, upper, work);
 
         // H17: Prevent setuid binaries and device nodes in the overlay.
@@ -188,6 +196,7 @@ impl OverlayMount {
             work_dir: work.to_path_buf(),
             merged_dir: merged.to_path_buf(),
             lower_dir: lower.to_path_buf(),
+            fuse_child: None,
         })
     }
 
@@ -258,9 +267,200 @@ impl OverlayMount {
         )
     }
 
+    /// Mount using fuse-overlayfs for rootless (non-root) operation.
+    ///
+    /// Spawns fuse-overlayfs in foreground mode (`-f`) so the process handle
+    /// can be tracked for cleanup. Verifies the mount established by checking
+    /// that the process is still running and the merged path is a mountpoint.
+    #[cfg(target_os = "linux")]
+    fn mount_fuse_overlayfs(
+        lower: &Path,
+        upper: &Path,
+        work: &Path,
+        merged: &Path,
+        allow_exec: bool,
+    ) -> Result<Self> {
+        let fuse_bin = Self::find_fuse_overlayfs()?;
+
+        // H17: nosuid/nodev always set; noexec unless profile allows execution
+        let mut opts = format!(
+            "lowerdir={},upperdir={},workdir={},nosuid,nodev",
+            lower.display(),
+            upper.display(),
+            work.display()
+        );
+        if !allow_exec {
+            opts.push_str(",noexec");
+        }
+
+        let mut child = std::process::Command::new(&fuse_bin)
+            .arg("-f")
+            .arg("-o")
+            .arg(&opts)
+            .arg(merged)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| {
+                crate::error::PuzzledError::Sandbox(format!("spawning fuse-overlayfs: {}", e))
+            })?;
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // If fuse-overlayfs exited within the settle window, the mount failed
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Err(crate::error::PuzzledError::Sandbox(format!(
+                    "fuse-overlayfs exited immediately with {} — \
+                     verify fuse-overlayfs is installed correctly and {} is a valid mountpoint",
+                    status,
+                    merged.display()
+                )));
+            }
+            Ok(None) => { /* still running — mount is likely up */ }
+            Err(e) => {
+                return Err(crate::error::PuzzledError::Sandbox(format!(
+                    "checking fuse-overlayfs process status: {}",
+                    e
+                )));
+            }
+        }
+
+        // Verify mount via device ID comparison with parent directory
+        if !Self::is_fuse_mountpoint(merged) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(crate::error::PuzzledError::Sandbox(format!(
+                "fuse-overlayfs process is running but {} does not appear to be a mountpoint",
+                merged.display()
+            )));
+        }
+
+        tracing::info!(
+            merged = %merged.display(),
+            lower = %lower.display(),
+            "fuse-overlayfs mounted (rootless)"
+        );
+
+        Ok(Self {
+            upper_dir: upper.to_path_buf(),
+            work_dir: work.to_path_buf(),
+            merged_dir: merged.to_path_buf(),
+            lower_dir: lower.to_path_buf(),
+            fuse_child: Some(child),
+        })
+    }
+
+    /// Locate the `fuse-overlayfs` binary in well-known paths or `$PATH`.
+    #[cfg(target_os = "linux")]
+    fn find_fuse_overlayfs() -> Result<PathBuf> {
+        for candidate in &["/usr/bin/fuse-overlayfs", "/usr/local/bin/fuse-overlayfs"] {
+            let p = Path::new(candidate);
+            if p.is_file() {
+                return Ok(p.to_path_buf());
+            }
+        }
+        if let Some(found) = Self::find_in_path("fuse-overlayfs") {
+            return Ok(found);
+        }
+        Err(crate::error::PuzzledError::Sandbox(
+            "rootless mode requires fuse-overlayfs but it was not found in PATH".to_string(),
+        ))
+    }
+
+    /// Search `$PATH` for a binary by name.
+    #[cfg(target_os = "linux")]
+    fn find_in_path(binary: &str) -> Option<PathBuf> {
+        std::env::var_os("PATH").and_then(|paths| {
+            std::env::split_paths(&paths)
+                .map(|dir| dir.join(binary))
+                .find(|p| p.is_file())
+        })
+    }
+
+    /// Check whether `path` is a mountpoint by comparing its device ID
+    /// with that of its parent directory.
+    #[cfg(target_os = "linux")]
+    fn is_fuse_mountpoint(path: &Path) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(path_meta) = std::fs::metadata(path) else {
+            return false;
+        };
+        let Some(parent) = path.parent() else {
+            return false;
+        };
+        let Ok(parent_meta) = std::fs::metadata(parent) else {
+            return false;
+        };
+        path_meta.dev() != parent_meta.dev()
+    }
+
+    /// Unmount a FUSE filesystem using fusermount3 (preferred) or fusermount.
+    #[cfg(target_os = "linux")]
+    fn fusermount_unmount(merged: &Path) -> Result<()> {
+        for cmd in &["fusermount3", "fusermount"] {
+            if Self::find_in_path(cmd).is_some() {
+                let output = std::process::Command::new(cmd)
+                    .arg("-u")
+                    .arg(merged)
+                    .output()
+                    .map_err(|e| {
+                        crate::error::PuzzledError::Sandbox(format!(
+                            "running {} -u {}: {}",
+                            cmd,
+                            merged.display(),
+                            e
+                        ))
+                    })?;
+                if output.status.success() {
+                    return Ok(());
+                }
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::warn!(
+                    cmd,
+                    stderr = %stderr.trim(),
+                    "fusermount failed, trying fallback"
+                );
+            }
+        }
+        Err(crate::error::PuzzledError::Sandbox(format!(
+            "failed to unmount fuse-overlayfs at {}: \
+             neither fusermount3 nor fusermount succeeded",
+            merged.display()
+        )))
+    }
+
     /// Unmount the OverlayFS filesystem.
     #[cfg(target_os = "linux")]
-    pub fn unmount(&self) -> Result<()> {
+    pub fn unmount(&mut self) -> Result<()> {
+        if let Some(ref mut child) = self.fuse_child {
+            // Rootless: unmount via fusermount3/fusermount, then clean up child
+            Self::fusermount_unmount(&self.merged_dir)?;
+
+            match child.try_wait() {
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                Ok(Some(_)) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "failed to check fuse-overlayfs status during unmount"
+                    );
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+
+            tracing::info!(
+                merged = %self.merged_dir.display(),
+                "fuse-overlayfs unmounted (rootless)"
+            );
+            return Ok(());
+        }
+
+        // Rootful: kernel unmount (unchanged)
         nix::mount::umount2(&self.merged_dir, nix::mount::MntFlags::MNT_DETACH).map_err(|e| {
             crate::error::PuzzledError::Sandbox(format!(
                 "unmounting OverlayFS at {}: {}",
@@ -274,7 +474,7 @@ impl OverlayMount {
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn unmount(&self) -> Result<()> {
+    pub fn unmount(&mut self) -> Result<()> {
         Err(crate::error::PuzzledError::Sandbox(
             "OverlayFS requires Linux".to_string(),
         ))
@@ -673,11 +873,12 @@ mod tests {
     #[cfg(not(target_os = "linux"))]
     #[test]
     fn test_unmount_returns_error_on_non_linux() {
-        let om = OverlayMount {
+        let mut om = OverlayMount {
             upper_dir: PathBuf::from("/upper"),
             work_dir: PathBuf::from("/work"),
             merged_dir: PathBuf::from("/merged"),
             lower_dir: PathBuf::from("/lower"),
+            fuse_child: None,
         };
         match om.unmount() {
             Err(e) => {
@@ -720,6 +921,91 @@ mod tests {
             options.contains("metacopy=off"),
             "mount options must include metacopy=off, got: {}",
             options
+        );
+    }
+
+    // ── fuse-overlayfs / rootless helpers ──
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_find_in_path_finds_sh() {
+        // /bin/sh exists on every Linux system
+        let result = OverlayMount::find_in_path("sh");
+        assert!(result.is_some(), "find_in_path should locate 'sh' in PATH");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_find_in_path_nonexistent() {
+        let result = OverlayMount::find_in_path("this_binary_definitely_does_not_exist_zzz");
+        assert!(
+            result.is_none(),
+            "find_in_path should return None for missing binary"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_is_fuse_mountpoint_returns_false_for_regular_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let subdir = tmp.path().join("sub");
+        std::fs::create_dir_all(&subdir).unwrap();
+        assert!(
+            !OverlayMount::is_fuse_mountpoint(&subdir),
+            "regular subdir should not be detected as a mountpoint"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_is_fuse_mountpoint_returns_false_for_nonexistent() {
+        let path = Path::new("/tmp/this_path_does_not_exist_zzz_overlay_test");
+        assert!(
+            !OverlayMount::is_fuse_mountpoint(path),
+            "nonexistent path should not be a mountpoint"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_fuse_overlayfs_error_message_when_missing() {
+        // Temporarily set PATH to empty so fuse-overlayfs cannot be found,
+        // and skip if fuse-overlayfs is in a well-known location.
+        if Path::new("/usr/bin/fuse-overlayfs").is_file()
+            || Path::new("/usr/local/bin/fuse-overlayfs").is_file()
+        {
+            // Can't test the "not found" path when it's installed in a well-known location
+            return;
+        }
+        let saved = std::env::var_os("PATH");
+        std::env::set_var("PATH", "/nonexistent_dir_for_test");
+        let result = OverlayMount::find_fuse_overlayfs();
+        if let Some(p) = saved {
+            std::env::set_var("PATH", p);
+        } else {
+            std::env::remove_var("PATH");
+        }
+        let err = result.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("fuse-overlayfs") && msg.contains("not found"),
+            "expected fuse-overlayfs not-found error, got: {msg}"
+        );
+    }
+
+    /// Verify the overlay module has rootless detection via geteuid.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_mount_has_rootless_detection() {
+        let source = include_str!("overlay.rs");
+        let prod_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            prod_source.contains("geteuid"),
+            "mount() must check geteuid for rootless detection"
+        );
+        assert!(
+            prod_source.contains("mount_fuse_overlayfs"),
+            "mount() must dispatch to mount_fuse_overlayfs for rootless mode"
         );
     }
 

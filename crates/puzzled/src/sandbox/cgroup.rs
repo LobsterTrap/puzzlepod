@@ -4,6 +4,31 @@ use std::path::PathBuf;
 
 use crate::error::Result;
 
+/// Resolve the cgroup v2 directory for `pid` from `/proc/<pid>/cgroup` (unified `0::` line)
+/// under the typical mount at `/sys/fs/cgroup`.
+#[cfg(target_os = "linux")]
+pub(crate) fn cgroup_v2_fs_path_for_pid(pid: u32) -> Result<PathBuf> {
+    let proc_cgroup = format!("/proc/{}/cgroup", pid);
+    let contents = std::fs::read_to_string(&proc_cgroup).map_err(|e| {
+        crate::error::PuzzledError::Sandbox(format!("reading {}: {}", proc_cgroup, e))
+    })?;
+    for line in contents.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("0::") {
+            let rel = rest.trim();
+            // Path after `0::` is relative to the v2 mount; strip a leading `/` so
+            // `Path::join` does not treat it as absolute and drop the mount prefix.
+            let rel = rel.strip_prefix('/').unwrap_or(rel);
+            let root = PathBuf::from("/sys/fs/cgroup");
+            return Ok(if rel.is_empty() { root } else { root.join(rel) });
+        }
+    }
+    Err(crate::error::PuzzledError::Sandbox(format!(
+        "no cgroup v2 unified (0::) line in {}",
+        proc_cgroup
+    )))
+}
+
 /// cgroup v2 scope manager — creates per-agent cgroup scopes
 /// and enforces resource limits.
 pub struct CgroupManager;

@@ -16,7 +16,7 @@ ima = ["dep:ed25519-dalek", "dep:base64"]
 proxy = ["dep:puzzle-proxy"]
 ## BPF LSM exec rate limiting (requires compiled exec_guard.bpf.o and
 ## CONFIG_BPF_LSM kernel support; pulls in aya-obj)
-bpf_lsm = ["dep:aya-obj"]
+bpf_lsm = ["dep:aya-obj", "aya-obj/std"]
 
 [lib]
 name = "puzzled"
@@ -56,6 +56,7 @@ zeroize = { version = "1", features = ["derive"] }
 sd-notify = "0.4"
 puzzle-proxy = { path = "../puzzle-proxy", optional = true }
 prometheus-client = { version = "0.22", optional = true }
+jsonschema = { version = "0.45.0", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.29", features = ["mount", "sched", "signal", "user", "fs", "resource"] }

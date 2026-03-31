@@ -11,65 +11,11 @@
 #![cfg(target_os = "linux")]
 
 use std::fs;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 use puzzled_types::{BranchState, PolicyDecision};
 
-// ---------------------------------------------------------------------------
-// Shared test infrastructure
-// ---------------------------------------------------------------------------
-
-/// Build a BranchManager wired to the real policy engine and profiles.
-fn make_manager(dir: &std::path::Path) -> puzzled::branch::BranchManager {
-    let branch_root = dir.join("branches");
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let base_dir = manifest_dir.parent().unwrap().parent().unwrap();
-    let profiles_dir = base_dir.join("policies").join("profiles");
-    let policies_dir = base_dir.join("policies").join("rules");
-
-    fs::create_dir_all(&branch_root).unwrap();
-
-    let config = puzzled::config::DaemonConfig {
-        branch_root: branch_root.clone(),
-        profiles_dir: profiles_dir.clone(),
-        policies_dir: policies_dir.clone(),
-        max_branches: 64,
-        bus_type: "session".to_string(),
-        fs_type: "ext4".to_string(),
-        log_level: "debug".to_string(),
-        watchdog_timeout_secs: 30,
-        ..Default::default()
-    };
-
-    let mut profile_loader = puzzled::profile::ProfileLoader::new(profiles_dir);
-    profile_loader.load_all().unwrap();
-
-    let policy_engine = puzzled::policy::PolicyEngine::new(policies_dir);
-    policy_engine.reload().unwrap();
-
-    let wal_dir = branch_root.join("wal");
-    puzzled::wal::WriteAheadLog::init(&wal_dir).unwrap();
-    let wal = puzzled::wal::WriteAheadLog::new(wal_dir);
-
-    let audit = puzzled::audit::AuditLogger::new();
-    let conflict_detector = Arc::new(Mutex::new(puzzled::conflict::ConflictDetector::new()));
-    let budget_manager = Arc::new(Mutex::new(puzzled::budget::BudgetManager::new()));
-    let seccomp_handler = puzzled::seccomp_handler::SeccompNotifHandler::spawn();
-
-    puzzled::branch::BranchManager::new(
-        config,
-        profile_loader,
-        policy_engine,
-        wal,
-        Arc::new(audit),
-        None,
-        conflict_detector,
-        budget_manager,
-        Some(seccomp_handler),
-        None,
-    )
-}
+mod common;
+use common::make_manager;
 
 // ===========================================================================
 // Scenario 1: Code Assistant — Clean Commit

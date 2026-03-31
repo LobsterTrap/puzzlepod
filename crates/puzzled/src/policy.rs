@@ -7,16 +7,14 @@ use crate::error::{PuzzledError, Result};
 
 /// OPA/Rego policy engine using regorus (pure-Rust Rego evaluator).
 ///
-/// H-29: Engine wrapped in `Mutex` for interior mutability so that `evaluate()`
-/// and `reload()` take `&self` instead of `&mut self`. This eliminates the need
-/// for an external `RwLock<PolicyEngine>` wrapper — callers can use `PolicyEngine`
-/// directly without lock contention.
+/// H-29: `evaluate()` and `reload()` take `&self`. Each evaluation uses a
+/// point-in-time snapshot of `.rego` files plus a thread-local `regorus::Engine`
+/// (for hard timeouts). No external `RwLock<PolicyEngine>` wrapper is required.
 ///
 /// Evaluates commit governance policies against file changesets.
 /// Cross-platform: policy evaluation is testable on macOS.
 pub struct PolicyEngine {
     policy_dir: PathBuf,
-    engine: std::sync::Mutex<regorus::Engine>,
     policy_count: std::sync::atomic::AtomicUsize,
     /// H8: Maximum time (ms) allowed for policy evaluation before timeout.
     /// On timeout, the commit is rejected with a Critical violation (fail-closed).
@@ -51,7 +49,6 @@ impl PolicyEngine {
         };
         Self {
             policy_dir,
-            engine: std::sync::Mutex::new(regorus::Engine::new()),
             policy_count: std::sync::atomic::AtomicUsize::new(0),
             evaluation_timeout_ms: timeout,
             leaked_policy_threads: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
@@ -60,12 +57,12 @@ impl PolicyEngine {
         }
     }
 
-    /// Load/reload all `.rego` files from the policy directory into the engine.
+    /// Load/reload all `.rego` files from the policy directory.
     ///
-    /// H-29: Takes `&self` — acquires internal Mutex for engine replacement.
+    /// Validates that every `.rego` file compiles and updates `policy_count`.
+    /// H-29: Takes `&self` — evaluation builds a fresh engine from a per-call
+    /// snapshot; this method only refreshes the loaded-policy count and checks config.
     pub fn reload(&self) -> Result<()> {
-        let mut new_engine = regorus::Engine::new();
-
         // R25: Return an error when policy directory doesn't exist instead of
         // silently succeeding with no policies loaded.
         if !self.policy_dir.exists() {
@@ -75,48 +72,46 @@ impl PolicyEngine {
             )));
         }
 
-        let entries = std::fs::read_dir(&self.policy_dir).map_err(|e| {
-            PuzzledError::Policy(format!(
-                "cannot read policy dir {}: {}",
-                self.policy_dir.display(),
-                e
-            ))
-        })?;
+        let policies = Self::load_rego_snapshot(&self.policy_dir)?;
 
-        let mut count = 0;
-        for entry in entries {
-            let entry = entry.map_err(|e| PuzzledError::Policy(e.to_string()))?;
-            let path = entry.path();
-
-            if path.extension().and_then(|e| e.to_str()) == Some("rego") {
-                let contents = std::fs::read_to_string(&path).map_err(|e| {
-                    PuzzledError::Policy(format!("reading {}: {}", path.display(), e))
-                })?;
-
-                new_engine
-                    .add_policy(path.display().to_string(), contents)
-                    .map_err(|e| {
-                        PuzzledError::Policy(format!("loading {}: {}", path.display(), e))
-                    })?;
-                count += 1;
-            }
+        let mut engine = regorus::Engine::new();
+        for (name, contents) in &policies {
+            engine
+                .add_policy(name.clone(), contents.clone())
+                .map_err(|e| PuzzledError::Policy(format!("loading {name}: {e}")))?;
         }
 
-        // Swap engine under lock
-        {
-            let mut engine = self.engine.lock().unwrap_or_else(|e| {
-                // S10/H-29: Mutex was poisoned by a panic in a previous holder.
-                // Recovery is intentional (policy engine state is replaced below),
-                // but log a warning so the event is visible in audit logs.
-                tracing::warn!("S10: policy engine mutex was poisoned — recovering (H-29)");
-                e.into_inner()
-            });
-            *engine = new_engine;
-        }
+        let count = policies.len();
         self.policy_count
             .store(count, std::sync::atomic::Ordering::Relaxed);
         tracing::info!(count, dir = %self.policy_dir.display(), "loaded Rego policies");
         Ok(())
+    }
+
+    /// Read all `.rego` files under `policy_dir` into `(policy_name, contents)` pairs.
+    /// Names use `Path::display()` for regorus. Sorted by name for deterministic order.
+    fn load_rego_snapshot(policy_dir: &Path) -> Result<Vec<(String, String)>> {
+        let entries = std::fs::read_dir(policy_dir).map_err(|e| {
+            PuzzledError::Policy(format!(
+                "cannot read policy dir {}: {}",
+                policy_dir.display(),
+                e
+            ))
+        })?;
+
+        let mut policies: Vec<(String, String)> = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|e| PuzzledError::Policy(e.to_string()))?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("rego") {
+                let contents = std::fs::read_to_string(&path).map_err(|e| {
+                    PuzzledError::Policy(format!("reading {}: {}", path.display(), e))
+                })?;
+                policies.push((path.display().to_string(), contents));
+            }
+        }
+        policies.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(policies)
     }
 
     /// Evaluate commit governance policy against a set of file changes.
@@ -168,20 +163,24 @@ impl PolicyEngine {
         profile_name: Option<&str>,
         workspace_root: Option<&str>,
     ) -> Result<PolicyDecision> {
-        // K67: Delegate to full method with no storage_quota_bytes
-        self.evaluate_full(changes, profile_name, workspace_root, None)
+        // K67: Delegate to full method with no storage_quota_bytes or allow_symlinks
+        self.evaluate_full(changes, profile_name, workspace_root, None, None)
     }
 
     /// Evaluate governance policy with all optional parameters.
     ///
     /// K67: `storage_quota_bytes` is passed to the Rego input so that the
     /// `dynamic_storage_quota` rule can use profile-specific limits.
+    /// V40: `allow_symlinks` is passed to the Rego input so that the
+    /// `deny_symlink` rule uses the profile's setting instead of hardcoding
+    /// the "privileged" profile name.
     pub fn evaluate_full(
         &self,
         changes: &[FileChange],
         profile_name: Option<&str>,
         workspace_root: Option<&str>,
         storage_quota_bytes: Option<u64>,
+        allow_symlinks: Option<bool>,
     ) -> Result<PolicyDecision> {
         // F17: Reject if too many concurrent evaluations are in progress.
         let active = self
@@ -247,6 +246,18 @@ impl PolicyEngine {
             }]));
         }
 
+        // Point-in-time snapshot of all `.rego` files before building input or spawning
+        // the evaluation thread — avoids a torn mix of policies during concurrent writes.
+        let policy_snapshot = Self::load_rego_snapshot(&self.policy_dir)?;
+        if policy_snapshot.is_empty() {
+            tracing::error!("policy directory has no .rego files — fail-closed, rejecting commit");
+            return Ok(PolicyDecision::Rejected(vec![Violation {
+                rule: "no_policies_loaded".to_string(),
+                message: "no .rego policies found in policy directory (fail-closed)".to_string(),
+                severity: ViolationSeverity::Critical,
+            }]));
+        }
+
         // Build input JSON with optional profile metadata for profile-aware policies
         // M1: Include total_bytes_changed so Rego policies can use input.total_bytes_changed
         let total_bytes_changed: u64 = changes.iter().map(|c| c.size).sum();
@@ -262,6 +273,8 @@ impl PolicyEngine {
                     "target": c.target.as_deref().unwrap_or(""),
                     // R1: Include new_mode so Rego can check setuid/setgid bits
                     "new_mode": c.new_mode,
+                    "entropy": c.entropy,
+                    "has_base64_blocks": c.has_base64_blocks,
                 })
             }).collect::<Vec<_>>(),
             "total_bytes_changed": total_bytes_changed
@@ -278,21 +291,27 @@ impl PolicyEngine {
         if let Some(quota) = storage_quota_bytes {
             input["storage_quota_bytes"] = serde_json::Value::Number(quota.into());
         }
+        // V40: Include allow_symlinks from the profile so the Rego deny_symlink rule
+        // uses the actual profile setting instead of hardcoding the "privileged" name.
+        if let Some(allow) = allow_symlinks {
+            input["allow_symlinks"] = serde_json::Value::Bool(allow);
+        }
+        // TODO: Read content_inspection from AgentProfile when the field is added.
+        // For now, default to false (opt-in via Rego input.profile_config).
+        input["profile_config"] = serde_json::json!({
+            "content_inspection_enabled": false,
+        });
 
         let input_str = serde_json::to_string(&input)
             .map_err(|e| PuzzledError::Policy(format!("serializing input: {}", e)))?;
 
         // B5: Hard timeout via channel-based isolation.
         // regorus::Engine is !Send, so we can't move it to another thread.
-        // Instead, we spawn a thread with a fresh engine that loads policies,
-        // evaluates, and sends the result through a channel. The caller uses
-        // recv_timeout to enforce a hard deadline — if evaluation hangs, the
-        // caller returns a timeout rejection immediately without blocking.
-        //
-        // Trade-off: ~2-5ms overhead per evaluation for policy reloading.
-        // This is acceptable given typical LLM inference latency (~seconds).
+        // Instead, we spawn a thread with a fresh engine that loads policies from
+        // the in-memory snapshot, evaluates, and sends the result through a channel.
+        // The caller uses recv_timeout to enforce a hard deadline — if evaluation hangs,
+        // the caller returns a timeout rejection immediately without blocking.
         let timeout_ms = self.evaluation_timeout_ms;
-        let policy_dir = self.policy_dir.clone();
         let input_str_clone = input_str;
 
         let (tx, rx) = std::sync::mpsc::channel();
@@ -301,37 +320,11 @@ impl PolicyEngine {
             let result = (|| -> Result<PolicyDecision> {
                 let mut engine = regorus::Engine::new();
 
-                // S1: Reload policies in the isolated thread.
-                // Track load failures — if any .rego file fails to compile,
-                // reject the evaluation (fail-closed). Silent discard via
-                // `let _ =` would allow evaluation with incomplete rules.
+                // S1: Load policies from the snapshot (same bytes the caller captured).
                 let mut policy_load_errors: Vec<String> = Vec::new();
-                if let Ok(entries) = std::fs::read_dir(&policy_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.extension().and_then(|e| e.to_str()) == Some("rego") {
-                            // R5: Do not silently skip unreadable policy files
-                            match std::fs::read_to_string(&path) {
-                                Ok(contents) => {
-                                    if let Err(e) =
-                                        engine.add_policy(path.display().to_string(), contents)
-                                    {
-                                        policy_load_errors.push(format!(
-                                            "{}: {}",
-                                            path.display(),
-                                            e
-                                        ));
-                                    }
-                                }
-                                Err(e) => {
-                                    policy_load_errors.push(format!(
-                                        "R5: failed to read {}: {}",
-                                        path.display(),
-                                        e
-                                    ));
-                                }
-                            }
-                        }
+                for (name, contents) in &policy_snapshot {
+                    if let Err(e) = engine.add_policy(name.clone(), contents.clone()) {
+                        policy_load_errors.push(format!("{name}: {e}"));
                     }
                 }
 
@@ -363,7 +356,7 @@ impl PolicyEngine {
                     return Ok(PolicyDecision::Approved);
                 }
 
-                // Parse violations using eval_query (matches evaluate_inner logic)
+                // Parse violations using eval_query
                 let violations_query = engine
                     .eval_query("data.puzzlepod.commit.violations".to_string(), false)
                     .map_err(|e| PuzzledError::Policy(format!("evaluating violations: {}", e)))?;
@@ -455,47 +448,6 @@ impl PolicyEngine {
                     severity: ViolationSeverity::Critical,
                 }]))
             }
-        }
-    }
-
-    /// Inner evaluation logic (used by tests and non-timeout paths).
-    /// B5: Production evaluate() now uses thread-based isolation with hard timeout.
-    #[allow(dead_code)]
-    fn evaluate_inner(&self) -> Result<PolicyDecision> {
-        let mut engine = self.engine.lock().unwrap_or_else(|e| {
-            // S10/H-29: Mutex was poisoned — recover but log a warning.
-            tracing::warn!(
-                "S10: policy engine mutex was poisoned in evaluate_inner — recovering (H-29)"
-            );
-            e.into_inner()
-        });
-        // Evaluate the allow rule
-        let allow_result = engine
-            .eval_rule("data.puzzlepod.commit.allow".to_string())
-            .map_err(|e| PuzzledError::Policy(format!("evaluating allow rule: {}", e)))?;
-
-        let allowed = matches!(allow_result, regorus::Value::Bool(true));
-
-        if allowed {
-            return Ok(PolicyDecision::Approved);
-        }
-
-        // Evaluate violations using eval_query to get the full set
-        let violations_query = engine
-            .eval_query("data.puzzlepod.commit.violations".to_string(), false)
-            .map_err(|e| PuzzledError::Policy(format!("evaluating violations: {}", e)))?;
-
-        let violations = Self::parse_query_violations(&violations_query);
-
-        if violations.is_empty() {
-            // Policy denied but no specific violations collected
-            Ok(PolicyDecision::Rejected(vec![Violation {
-                rule: "unknown".to_string(),
-                message: "policy denied commit with no specific violations".to_string(),
-                severity: ViolationSeverity::Error,
-            }]))
-        } else {
-            Ok(PolicyDecision::Rejected(violations))
         }
     }
 
@@ -647,6 +599,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let decision = engine.evaluate(&changes, None).unwrap();
@@ -667,6 +621,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let decision = engine.evaluate(&changes, None).unwrap();
@@ -693,6 +649,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let decision = engine.evaluate(&changes, None).unwrap();
@@ -758,6 +716,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let decision = engine.evaluate(&changes, None).unwrap();
@@ -793,6 +753,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         // Without profile: should be approved (under 100 MiB default)
@@ -855,6 +817,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let decision = engine.evaluate(&changes, None).unwrap();
@@ -908,6 +872,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         // With workspace_root set
@@ -978,6 +944,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
         let decision = engine.evaluate(&changes, None).unwrap();
         match decision {
@@ -1006,6 +974,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
         let decision = engine.evaluate(&changes, None).unwrap();
         match decision {
@@ -1034,6 +1004,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
         let decision = engine.evaluate(&changes, None).unwrap();
         match decision {
@@ -1064,6 +1036,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
         let decision = engine.evaluate(&changes, None).unwrap();
         match decision {
@@ -1092,6 +1066,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
         let decision = engine.evaluate(&changes, None).unwrap();
         match decision {
@@ -1120,6 +1096,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
         let decision = engine.evaluate(&changes, None).unwrap();
         match decision {
@@ -1159,6 +1137,8 @@ mod tests {
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         // Run several attempts — thread-spawn overhead is non-deterministic,
@@ -1210,6 +1190,8 @@ violations := set()
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         // v1: allow-all — even /etc/shadow should be approved
@@ -1259,6 +1241,8 @@ violations := set()
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
         let decision = engine.evaluate(&changes, None).unwrap();
         match decision {
@@ -1288,6 +1272,8 @@ violations := set()
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
         let decision = engine.evaluate(&changes, None).unwrap();
         match decision {
@@ -1319,6 +1305,8 @@ violations := set()
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         // No profile (default) — symlinks should be denied
@@ -1385,6 +1373,8 @@ violations := set()
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         let decision = engine
@@ -1423,6 +1413,8 @@ violations := set()
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
         // With "privileged" profile: should be rejected by default max_changeset_size
@@ -1446,13 +1438,8 @@ violations := set()
         }
     }
 
-    // S1: Silent policy load failure — invalid .rego in the policy dir should
-    // cause the evaluation thread (which reloads policies with `let _ =`) to
-    // reject rather than silently approve with incomplete rules.
-    //
-    // Note: `reload()` correctly propagates errors. The bug is in the timeout
-    // evaluation thread (line ~225) where `let _ = engine.add_policy(...)`
-    // silently discards compile errors. We test the evaluation path directly.
+    // S1: Invalid .rego in the policy dir at evaluation time should reject
+    // (fail-closed) rather than approve with an incomplete policy set.
     #[test]
     fn test_s1_invalid_rego_causes_evaluation_error() {
         let dir = tempfile::tempdir().unwrap();
@@ -1489,12 +1476,11 @@ violations := set()
             new_mode: None,
             timestamp: None,
             target: None,
+            entropy: None,
+            has_base64_blocks: None,
         }];
 
-        // S1: The evaluation thread reloads policies from the directory.
-        // With the invalid .rego file present, `let _ = engine.add_policy()`
-        // silently discards the error, and evaluation proceeds with incomplete
-        // rules. This MUST return a rejection (not Approved).
+        // Snapshot includes both valid.rego and invalid.rego — compile must fail-closed.
         let result = engine.evaluate(&changes, None).unwrap();
         match result {
             PolicyDecision::Rejected(ref violations) => {
@@ -1507,12 +1493,7 @@ violations := set()
                 );
             }
             PolicyDecision::Approved => {
-                panic!(
-                    "S1: evaluation should NOT silently approve when a .rego file \
-                     fails to compile — the `let _ = engine.add_policy()` in the \
-                     evaluation thread silently discards compilation errors, allowing \
-                     evaluation to proceed with an incomplete policy set"
-                );
+                panic!("S1: evaluation should NOT approve when a .rego file fails to compile");
             }
             other => {
                 // PolicyDecision::Error is also acceptable — any non-Approved outcome
@@ -1522,56 +1503,7 @@ violations := set()
         }
     }
 
-    // S10: Mutex poison recovery should log a warning
-    #[test]
-    fn test_s10_mutex_poison_recovery_has_logging() {
-        // Verify the code includes tracing::warn! when recovering from mutex poison.
-        // This is a code-level assertion — we check that the source contains the
-        // expected warning log near the unwrap_or_else pattern.
-        let source = include_str!("policy.rs");
-
-        // Find all occurrences of unwrap_or_else(|e| e.into_inner())
-        // and verify each is preceded or followed by a tracing::warn! about poison
-        let poison_recoveries: Vec<_> = source
-            .lines()
-            .enumerate()
-            .filter(|(_, line)| line.contains("into_inner()") && line.contains("unwrap_or_else"))
-            .collect();
-
-        assert!(
-            !poison_recoveries.is_empty(),
-            "S10: expected at least one mutex poison recovery pattern in policy.rs"
-        );
-
-        for (line_num, _line) in &poison_recoveries {
-            // Check surrounding lines (within 5 lines) for tracing::warn
-            let context_start = line_num.saturating_sub(5);
-            let context_end = line_num + 5;
-            let context_lines: Vec<_> = source
-                .lines()
-                .enumerate()
-                .filter(|(i, _)| *i >= context_start && *i <= context_end)
-                .collect();
-
-            let has_warn = context_lines
-                .iter()
-                .any(|(_, l)| l.contains("tracing::warn") || l.contains("warn!"));
-
-            assert!(
-                has_warn,
-                "S10: mutex poison recovery at line {} lacks tracing::warn! — \
-                 silent recovery hides potential corruption. Context:\n{}",
-                line_num + 1,
-                context_lines
-                    .iter()
-                    .map(|(i, l)| format!("  {}: {}", i + 1, l))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
-        }
-    }
-
-    // R5: Verify evaluation thread does NOT silently skip unreadable policy files.
+    // R5: Verify evaluation path does NOT silently skip unreadable policy files.
     #[test]
     fn test_r5_evaluation_thread_does_not_silently_skip_policy_files() {
         let source = include_str!("policy.rs");

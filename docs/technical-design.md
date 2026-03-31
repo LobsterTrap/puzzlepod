@@ -55,7 +55,7 @@ PuzzlePod supports two operating modes for container lifecycle management. Both 
 |  +-------------+  +--------------+  +---------------+      |
 |  |   puzzled   |  |   puzzlectl  |  |  OPA/Rego     |      |
 |  | (Rust,      |  |   (Rust,     |  |  Policies     |      |
-|  |  tokio,     |  |   clap)      |  |  (Wasm via    |      |
+|  |  tokio,     |  |   clap)      |  |  (native Rust |      |
 |  |  zbus)      |  |              |  |   regorus)    |      |
 |  |             |  |              |  |               |      |
 |  | - clone3()  |  | - D-Bus      |  | - Commit      |      |
@@ -278,6 +278,8 @@ PuzzlePod composes the following existing, unmodified kernel primitives into a p
 | v5 | 6.10+ | `LANDLOCK_ACCESS_FS_IOCTL_DEV` |
 | v6 | 6.12+ | Signal + abstract Unix socket scoping |
 
+**Note:** puzzled requests ABI V5. On kernels 6.7–6.9, the landlock crate negotiates down to V4 (IOCTL_DEV restrictions unavailable). On kernels below 6.7, network restrictions (V4) are also unavailable. For profiles with `fail_mode: FailClosed` and network mode Gated/Blocked, puzzled requires ABI v4+ and will refuse to create the sandbox on older kernels.
+
 ---
 
 ## 3. Core Containment Architecture
@@ -385,56 +387,65 @@ puzzled (root / CAP_SYS_ADMIN)                 Agent process (unprivileged)
 #### Lifecycle State Machine
 
 ```
-                 puzzled CreateBranch()
-                          |
-                          v
-                    +-----------+
-                    |  CREATED  |
-                    +-----------+
-                          | Agent process forked
-                          v
-                    +-----------+
-                    |  RUNNING  |<--------------------+
-                    |           |                     |
-                    +--+--+--+--+                     |
-               PID 1   |  |  |  Lifetime /            |
-               exits   |  |  |  quota exceeded        |
-                       |  |  |                        |
-          +------------+  |  +--------+               |
-          v               |           v               |
-   +------------+         |    +------------+         |
-   |  EXITED    |         |    | TERMINATED |         |
-   +------+-----+         |    +------+-----+         |
-          |               |           |               |
-          v               |           v               |
-   +------------+         |    +------------+         |
-   | GOVERNANCE |----+----+-->| ROLLED     |         |
-   | REVIEW     |    |        | BACK       |         |
-   |            |reject       +------------+         |
-   | Changeset  |                                    |
-   | evaluated  +----retry---------------------------+
-   +------+-----+
-          |
-          | approve
-          v
-   +------------+
-   | COMMITTED  |
-   +------------+
+States match BranchState (puzzled-types, branch.rs). Edges are enforced by
+BranchManager::transition() (puzzled, branch/mod.rs).
+
+Creating ──→ Ready ──→ Active ──→ Frozen ──→ Committing ──→ Committed
+               │  │      │  ↑        │  ↑        │
+               │  │      │  │        │  │        ├──→ GovernanceReview ──→ Committed
+               │  │      │  │        │  │        │                    └──→ RolledBack
+               │  │      │  │        │  │        ├──→ Active            (WAL failure recovery)
+               │  │      │  │        │  │        └──→ Failed
+               │  │      │  │        │  ├──→ RolledBack
+               │  │      │  │        │  ├──→ Committed   (empty changeset)
+               │  │      │  │        │  ├──→ Terminated (e.g. OOM during freeze)
+               │  │      │  │        │  └──→ Active     (FailSilent / FailOperational thaw)
+               │  │      │  │        │
+               │  │      │  └────────┘
+               │  │      ├──→ RolledBack        (operator rollback / kill)
+               │  │      ├──→ Exited            (PID 1 exit 0)
+               │  │      └──→ Terminated       (signal or non-zero exit)
+               │  │
+               │  └──→ Frozen                 (direct-mode commit: no agent to freeze)
+               └──→ RolledBack                 (workspace cancelled before activation)
+
+Exited      ──→ Frozen                        (freeze for commit after clean exit)
+Terminated  ──→ RolledBack                    (discard changes after hard stop)
+
+Any         ──→ Degraded                     (FailOperational / FailSilent; or Ready/Active
+                                              restored after daemon restart — no live sandbox)
+Any         ──→ Failed                       (unrecoverable error; terminal for that branch row)
 ```
+
+`create_branch` persists **Ready** immediately (workspace only, no agent). **Creating** is still a first-class state: `BranchManager::transition()` allows Creating → Ready when a branch begins in Creating before activation.
 
 **State transition guarantees:**
 
 | Transition | Trigger | Guarantee |
 |---|---|---|
-| CREATED -> RUNNING | Agent process exec'd into context | All isolation mechanisms active before agent code runs |
-| RUNNING -> EXITED | Agent PID 1 exits with code 0 | All child processes also terminated (PID namespace teardown) |
-| RUNNING -> TERMINATED | Lifetime, quota, or OOM exceeded | SIGKILL sent to all processes; no graceful shutdown |
-| EXITED -> GOVERNANCE REVIEW | Automatic | Changeset is frozen; no further writes possible |
-| GOVERNANCE REVIEW -> COMMITTED | Policy engine approves | WAL-protected merge to base filesystem; audit event with signed manifest |
-| GOVERNANCE REVIEW -> ROLLED BACK | Policy engine rejects, or timeout | All changes discarded; base filesystem untouched |
-| GOVERNANCE REVIEW -> RUNNING | FailSilent/FailOperational recovery | Agent thawed and returned to running state for retry |
-| TERMINATED -> ROLLED BACK | Always | No governance review for terminated contexts; immediate cleanup |
-| Any -> ROLLED BACK | puzzled crash or exit | Fail-closed: branches rolled back on restart |
+| Creating → Ready | Sandbox setup finished | Workspace metadata valid; activation may follow |
+| Ready → Active | Branch activated with running agent | Isolation stack applied before agent code runs |
+| Ready → Frozen | Commit without a live agent (direct mode) | No cgroup freeze; upper layer still consistent for diff/commit |
+| Ready → RolledBack | Cancel before activation | Upper layer removed; slot freed |
+| Active → Frozen | Commit path freezes cgroup | TOCTOU-safe diff against upper layer |
+| Active → RolledBack | Operator rollback or policy path | Cleanup and upper removal; base unchanged |
+| Active → Exited | Agent PID 1 exits 0 | PID namespace teardown ends child processes |
+| Active → Terminated | Signal or non-zero exit | Hard stop; typically followed by RolledBack |
+| Frozen → Active | FailSilent / FailOperational thaw | Agent resumed after policy-selected recovery |
+| Frozen → Committing | WAL-backed commit begins | Intent logged before base writes |
+| Frozen → RolledBack | Rejected changes or rollback | No partial merge past WAL rules |
+| Frozen → Committed | Empty changeset fast path | No WAL file ops when nothing to merge |
+| Frozen → Terminated | e.g. OOM while frozen | Branch does not return to Active |
+| Committing → Committed | WAL completes successfully | Atomic merge semantics; audit + metrics |
+| Committing → Active | WAL commit failure recovery | Retry or operator fix without forcing Failed |
+| Committing → Failed | Fatal commit error | Terminal state for that branch |
+| Committing → GovernanceReview | Policy approved + human approval required | Changeset held until approve, reject, or timeout |
+| GovernanceReview → Committed | Human approval (`approve_branch`) | Finalize using stored changeset |
+| GovernanceReview → RolledBack | Reject or review timeout | Same cleanup as rollback |
+| Exited → Frozen | Commit after clean exit | Cgroup frozen for diff even though PID 1 is gone |
+| Terminated → RolledBack | Cleanup after termination | Upper discarded; no commit |
+| * → Degraded | Fail modes or `load_state` after restart | Branch row kept for inspection; enforcement may be absent |
+| * → Failed | Unrecoverable error from any prior state | `transition()` permits this from every state; other edges still validated pairwise |
 
 #### Sibling Branch Isolation
 
@@ -776,6 +787,8 @@ Network operations are the primary class of side effects that cannot be rolled b
 
 **Implementation:** The `puzzle-proxy` crate (Rust, async, tokio + hyper) runs a lightweight HTTP proxy inside each agent's network namespace. GET/HEAD requests are forwarded if domain is in allowlist. POST/PUT/DELETE/PATCH requests are serialized to a network journal on disk for replay at commit time. The agent's environment receives `HTTP_PROXY`/`HTTPS_PROXY` pointing to the in-namespace proxy endpoint.
 
+**IPv4/IPv6 asymmetry:** IPv4 traffic on intercepted ports (80, 443) is DNAT-redirected to the proxy. IPv6 traffic on the same ports is dropped (not redirected) because IPv6 DNAT requires an IPv6 gateway address not currently provisioned by puzzle-init. Agents using IPv6 destinations on intercepted ports will receive connection failures. This is a known limitation; IPv6 DNAT support is planned for a future release.
+
 **Network journal storage:**
 
 ```
@@ -897,9 +910,11 @@ puzzled (runs as root or user)
 
 **Hardening:** Minimal capabilities, SELinux-confined (`puzzlepod_t`), seccomp-BPF (configurable per-profile), no external network access.
 
-**Fail-closed behavior:** If puzzled crashes during governance evaluation, pending commits are rolled back on restart. Landlock restrictions on agent processes survive (kernel-enforced, independent). systemd restarts puzzled; it re-discovers active branches from `/var/lib/puzzled/branches/`.
+**Fail-closed behavior:** If puzzled crashes during governance evaluation, pending commits are rolled back on restart. Landlock restrictions on agent processes survive (kernel-enforced, independent). systemd restarts puzzled; it re-discovers active branches from `/var/lib/puzzled/branches/`. On restart, puzzled establishes new seccomp notification listeners for newly created agents only. Pre-existing agents whose seccomp notification fd pointed to the crashed daemon receive ENOSYS from the kernel for all gated syscalls (`execve`, `connect`, `bind`) and cannot be re-governed. These agents are automatically terminated during recovery.
 
-**Rootless degradation:** When running as a user instance without root, BPF LSM is disabled (requires `CAP_BPF`), fanotify is partial (path-based only), XFS project quotas are unavailable (use `podman --storage-opt size=` instead), and kernel OverlayFS is replaced by fuse-overlayfs (~15-20% I/O overhead). Landlock, seccomp (static deny + USER_NOTIF), OPA policy, and the audit chain work fully.
+**Rootless degradation:** When running as a user instance without root, BPF LSM is disabled (requires `CAP_BPF`), fanotify is partial (path-based only; FID-based rename tracking unavailable), XFS project quotas are unavailable (use `podman --storage-opt size=` instead), and kernel OverlayFS is replaced by fuse-overlayfs (~15-20% I/O overhead). Landlock, seccomp (static deny + USER_NOTIF), OPA policy, and the audit chain work fully.
+
+**fuse-overlayfs atomicity:** fuse-overlayfs does not provide the same rename atomicity guarantees as kernel OverlayFS. In-flight agent writes during the Explore phase go through FUSE userspace, which may leave the overlay inconsistent on crash. This is acceptable because: (1) agent writes target the discardable upper layer, and (2) the commit path uses the WAL independently of overlay consistency.
 
 **fanotify behavioral monitoring:**
 
@@ -1382,7 +1397,7 @@ MCP message parsing in proxy (HTTP/SSE transport) and standalone governance shim
 | OOM in agent cgroup | cgroup OOM handler | Branch auto-rolled back |
 | Branch lifetime expired | puzzled timer | Branch auto-rolled back |
 | Power loss during commit | fsync not completed | WAL recovery on boot; incomplete commits rolled back |
-| seccomp notification fd closed | Agent syscalls return ENOSYS | Agent crashes; branch rolled back |
+| seccomp notification fd closed | Agent syscalls return ENOSYS | puzzled terminates surviving agents on recovery; branch metadata marked Degraded |
 | fanotify queue overflow | Events lost | Falls back to upper-dir walk at commit time |
 
 ### 9.3 Fail-Closed Behavior
@@ -1601,7 +1616,7 @@ engine = opa
 policy_dir = /etc/puzzled/policies/
 profile_dir = /etc/puzzled/profiles/
 default_profile = restricted
-hot_reload = true
+# Policy reload is manual: puzzlectl policy reload or D-Bus ReloadPolicy method.
 
 [governance]
 default_action = rollback
